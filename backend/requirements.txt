@@ -1,0 +1,11 @@
+Django>=5.2,<5.3
+djangorestframework
+djangorestframework-simplejwt
+drf-nested-routers
+djoser
+drf-extra-fields
+python-dotenv
+Pillow
+requests
+psycopg2-binary
+gunicorn
