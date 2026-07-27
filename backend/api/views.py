@@ -14,6 +14,7 @@ from api.serializers import (
     AvatarSerializer,
     CommentSerializer,
     ConsultationSerializer,
+    ConsultationStatusUpdateSerializer,
     RatingSerializer,
 )
 from articles.models import Article, Comment, Rating
@@ -83,11 +84,13 @@ class ArticleRelationViewSet(viewsets.ModelViewSet):
 
 
 class CommentViewSet(ArticleRelationViewSet):
+    queryset = Comment.objects.all()
     serializer_class = CommentSerializer
     relation_model = Comment
 
 
 class RatingViewSet(ArticleRelationViewSet):
+    queryset = Rating.objects.all()
     serializer_class = RatingSerializer
     relation_model = Rating
 
@@ -102,10 +105,16 @@ class ConsultationViewSet(
     mixins.CreateModelMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
     viewsets.GenericViewSet,
 ):
     queryset = Consultation.objects.select_related('user')
     serializer_class = ConsultationSerializer
+
+    def get_serializer_class(self):
+        if self.action in ('update', 'partial_update'):
+            return ConsultationStatusUpdateSerializer
+        return ConsultationSerializer
 
     def get_permissions(self):
         if self.action == 'create':

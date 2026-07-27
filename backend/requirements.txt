@@ -7,5 +7,6 @@ drf-extra-fields
 python-dotenv
 Pillow
 requests
+drf-spectacular
 psycopg2-binary
 gunicorn

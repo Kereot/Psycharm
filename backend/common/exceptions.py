@@ -2,16 +2,18 @@ from rest_framework import status
 from rest_framework.exceptions import APIException
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
+from common.constants import DUPLICATE_CONSULTATION_MESSAGE, DUPLICATE_RATING_MESSAGE
+
 
 # Оценки статей (ratings)
 class DuplicateRatingError(DRFValidationError):
-    default_detail = 'Вы уже оценили эту статью.'
+    default_detail = DUPLICATE_RATING_MESSAGE
     default_code = 'duplicate_rating'
 
 
 # Заявки на консультацию (consultations)
 class DuplicateConsultationError(DRFValidationError):
-    default_detail = 'У вас уже есть открытая заявка с этим контактом.'
+    default_detail = DUPLICATE_CONSULTATION_MESSAGE
     default_code = 'duplicate_consultation'
 
 

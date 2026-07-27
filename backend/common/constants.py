@@ -14,11 +14,14 @@ RATING_CHOICES = [(i, str(i)) for i in range(RATING_MIN_VALUE, RATING_MAX_VALUE 
 
 # Комментарии (comments)
 VISUAL_NAME_LIMIT = 30
+COMMENT_FORM_ROWS = 3
 
 # Заявки на консультацию (consultations)
 CONSULTATION_NAME_MAX_LENGTH = 150
 CONSULTATION_CONTACT_VALUE_MAX_LENGTH = 254
 CONSULTATION_CHOICE_FIELD_MAX_LENGTH = 20
+
+CONSULTATION_FORM_ROWS = 4
 
 CONSULTATION_STATUS_NEW = 'new'
 CONSULTATION_STATUS_IN_PROGRESS = 'in_progress'
@@ -49,3 +52,7 @@ JWT_REFRESH_TOKEN_LIFETIME_DAYS = 7
 API_PAGE_SIZE = 10
 DEFAULT_EMAIL_PORT = 587
 DEFAULT_DB_PORT = 5432
+
+# Сообщения об ошибках (используются и в DRF-исключениях, и в обычных Django-формах)
+DUPLICATE_RATING_MESSAGE = 'Вы уже оценили эту статью.'
+DUPLICATE_CONSULTATION_MESSAGE = 'У вас уже есть открытая заявка с этим контактом.'

@@ -5,8 +5,8 @@ from rest_framework import serializers
 from rest_framework.validators import UniqueTogetherValidator
 
 from articles.models import Article, Comment, Rating
-from common.constants import CONSULTATION_STATUS_CLOSED
-from common.exceptions import DuplicateConsultationError, DuplicateRatingError
+from common.constants import CONSULTATION_STATUS_CLOSED, DUPLICATE_CONSULTATION_MESSAGE
+from common.exceptions import DuplicateRatingError
 from common.fields import NoBlankBase64ImageField
 from consultations.models import CONTACT_VALIDATORS, Consultation
 from users.models import User
@@ -83,7 +83,7 @@ class ConsultationSerializer(serializers.ModelSerializer):
                 queryset=Consultation.objects.all(),
                 fields=('contact_method', 'contact_value'),
                 condition=~Q(status=CONSULTATION_STATUS_CLOSED),
-                message=DuplicateConsultationError.default_detail,
+                message=DUPLICATE_CONSULTATION_MESSAGE,
             ),
         )
 
@@ -98,3 +98,9 @@ class ConsultationSerializer(serializers.ModelSerializer):
             except DjangoValidationError as error:
                 raise serializers.ValidationError({'contact_value': error.messages})
         return attrs
+
+
+class ConsultationStatusUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Consultation
+        fields = ('status',)
