@@ -56,3 +56,11 @@ DEFAULT_DB_PORT = 5432
 # Сообщения об ошибках (используются и в DRF-исключениях, и в обычных Django-формах)
 DUPLICATE_RATING_MESSAGE = 'Вы уже оценили эту статью.'
 DUPLICATE_CONSULTATION_MESSAGE = 'У вас уже есть открытая заявка с этим контактом.'
+
+# Статичные страницы (pages)
+HOME_RECENT_ARTICLES_COUNT = 3
+
+# Прайс-лист (service prices)
+SERVICE_PRICE_TITLE_MAX_LENGTH = 150
+SERVICE_PRICE_VALUE_MAX_LENGTH = 100
+SERVICE_PRICE_DESCRIPTION_MAX_LENGTH = 300

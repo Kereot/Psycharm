@@ -9,6 +9,7 @@ from common.constants import CONSULTATION_STATUS_CLOSED, DUPLICATE_CONSULTATION_
 from common.exceptions import DuplicateRatingError
 from common.fields import NoBlankBase64ImageField
 from consultations.models import CONTACT_VALIDATORS, Consultation
+from pages.models import ServicePrice
 from users.models import User
 
 
@@ -104,3 +105,9 @@ class ConsultationStatusUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Consultation
         fields = ('status',)
+
+
+class ServicePriceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ServicePrice
+        fields = ('id', 'title', 'description', 'price', 'duration')

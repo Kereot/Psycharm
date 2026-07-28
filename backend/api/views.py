@@ -16,6 +16,7 @@ from api.serializers import (
     ConsultationSerializer,
     ConsultationStatusUpdateSerializer,
     RatingSerializer,
+    ServicePriceSerializer,
 )
 from articles.models import Article, Comment, Rating
 from common.exceptions import (
@@ -25,6 +26,7 @@ from common.exceptions import (
     NotificationDeliveryError,
 )
 from consultations.models import Consultation
+from pages.models import ServicePrice
 
 
 class UserViewSet(BaseUserViewSet):
@@ -138,3 +140,9 @@ class ConsultationViewSet(
         queryset = Consultation.objects.filter(user=request.user)
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
+
+
+class ServicePriceViewSet(viewsets.ModelViewSet):
+    queryset = ServicePrice.objects.all()
+    serializer_class = ServicePriceSerializer
+    permission_classes = (IsAdminOrReadOnly,)

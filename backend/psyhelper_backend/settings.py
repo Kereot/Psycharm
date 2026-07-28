@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     'users',
     'articles',
     'consultations',
+    'pages',
     'api',
 ]
 
