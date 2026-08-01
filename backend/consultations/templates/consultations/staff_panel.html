@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% block title %}Заявки на консультацию{% endblock %}
+
+{% block content %}
+<h1 class="mb-4">Заявки на консультацию</h1>
+
+<div id="consultations-app">
+    <p>Загрузка...</p>
+</div>
+
+<script>
+const STATUS_LABELS = {new: 'Новая', in_progress: 'В работе', closed: 'Закрыта'};
+
+function getCookie(name) {
+    const match = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
+    return match ? decodeURIComponent(match.pop()) : '';
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text ?? '';
+    return div.innerHTML;
+}
+
+async function loadConsultations() {
+    const root = document.getElementById('consultations-app');
+    try {
+        const response = await fetch('/api/v1/consultations/?limit=100');
+        if (!response.ok) {
+            root.innerHTML = '<div class="alert alert-danger">Не удалось загрузить заявки.</div>';
+            return;
+        }
+        const data = await response.json();
+        renderTable(data.results);
+    } catch (error) {
+        root.innerHTML = '<div class="alert alert-danger">Ошибка сети при загрузке заявок.</div>';
+    }
+}
+
+function renderTable(items) {
+    const root = document.getElementById('consultations-app');
+
+    if (!items.length) {
+        root.innerHTML = '<p>Заявок пока нет.</p>';
+        return;
+    }
+
+    const options = Object.entries(STATUS_LABELS)
+        .map(([value, label]) => `<option value="${value}">${label}</option>`)
+        .join('');
+
+    const rows = items.map(item => `
+        <tr data-id="${item.id}">
+            <td>${escapeHtml(item.name)}</td>
+            <td>${escapeHtml(item.contact_method)}: ${escapeHtml(item.contact_value)}</td>
+            <td style="max-width: 300px; white-space: pre-wrap;">${escapeHtml(item.message)}</td>
+            <td>${new Date(item.created_at).toLocaleString('ru-RU')}</td>
+            <td>
+                <select class="form-select form-select-sm status-select">${options}</select>
+            </td>
+        </tr>
+    `).join('');
+
+    root.innerHTML = `
+        <table class="table align-middle">
+            <thead>
+                <tr>
+                    <th>Имя</th>
+                    <th>Контакт</th>
+                    <th>Сообщение</th>
+                    <th>Создана</th>
+                    <th>Статус</th>
+                </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+        </table>
+    `;
+
+    root.querySelectorAll('tr[data-id]').forEach((row, index) => {
+        const select = row.querySelector('.status-select');
+        select.value = items[index].status;
+        select.addEventListener('change', onStatusChange);
+    });
+}
+
+async function onStatusChange(event) {
+    const select = event.target;
+    const row = select.closest('tr');
+    const id = row.dataset.id;
+    const previousValue = select.dataset.previousValue || select.value;
+
+    const response = await fetch(`/api/v1/consultations/${id}/`, {
+        method: 'PATCH',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCookie('csrftoken'),
+        },
+        body: JSON.stringify({status: select.value}),
+    });
+
+    if (!response.ok) {
+        alert('Не удалось обновить статус.');
+        select.value = previousValue;
+        return;
+    }
+
+    select.dataset.previousValue = select.value;
+}
+
+loadConsultations();
+</script>
+{% endblock %}

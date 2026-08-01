@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}Цены{% endblock %}
+
+{% block content %}
+<h1 class="mb-4">Цены</h1>
+
+<div class="row g-4">
+    {% for item in prices %}
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h2 class="h5 card-title">{{ item.title }}</h2>
+                    {% if item.description %}
+                        <p class="card-text">{{ item.description }}</p>
+                    {% endif %}
+                    <p class="card-text fs-4 mb-1">{{ item.price }}</p>
+                    <p class="card-text text-muted">{{ item.duration }}</p>
+                </div>
+            </div>
+        </div>
+    {% empty %}
+        <p class="text-muted">Прайс пока не заполнен.</p>
+    {% endfor %}
+</div>
+
+<a href="{% url 'consultations:request' %}" class="btn btn-primary mt-4">Записаться на консультацию</a>
+{% endblock %}

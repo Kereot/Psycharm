@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block title %}Статьи{% endblock %}
+
+{% block content %}
+<h1 class="mb-4">Статьи</h1>
+
+{% for article in articles %}
+    <div class="card mb-3">
+        <div class="card-body">
+            <h5 class="card-title">
+                <a href="{% url 'articles:detail' article.slug %}">{{ article.title }}</a>
+            </h5>
+            <h6 class="card-subtitle mb-2 text-muted">
+                {{ article.author }} · {{ article.created_at|date:"d.m.Y" }}
+            </h6>
+        </div>
+    </div>
+{% empty %}
+    <p>Пока нет опубликованных статей.</p>
+{% endfor %}
+
+{% if is_paginated %}
+    <nav aria-label="Навигация по страницам">
+        <ul class="pagination">
+            {% if page_obj.has_previous %}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ page_obj.previous_page_number }}">Назад</a>
+                </li>
+            {% endif %}
+            <li class="page-item disabled">
+                <span class="page-link">{{ page_obj.number }} из {{ page_obj.paginator.num_pages }}</span>
+            </li>
+            {% if page_obj.has_next %}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ page_obj.next_page_number }}">Вперёд</a>
+                </li>
+            {% endif %}
+        </ul>
+    </nav>
+{% endif %}
+{% endblock %}

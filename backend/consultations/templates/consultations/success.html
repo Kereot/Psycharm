@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+
+{% block title %}Заявка отправлена{% endblock %}
+
+{% block content %}
+<div class="alert alert-success">
+    <h1 class="h4">Спасибо!</h1>
+    <p class="mb-0">Ваша заявка принята. Мы свяжемся с вами в ближайшее время.</p>
+</div>
+
+<a href="{% url 'pages:home' %}" class="btn btn-outline-primary">На главную</a>
+{% endblock %}

@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block title %}Главная{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <div class="col-md-4">
+        {# TODO: это заглушка! #}
+        <div class="bg-secondary bg-opacity-25 d-flex align-items-center justify-content-center rounded"
+             style="aspect-ratio: 3 / 4; min-height: 320px;">
+            <span class="text-muted">Фото (заглушка)</span>
+        </div>
+    </div>
+
+    <div class="col-md-4 d-flex flex-column justify-content-center">
+        {# TODO: это заглушка!' #}
+        <h1 class="h3">Имя Фамилия</h1>
+        <p class="text-muted">
+            Заглушка описания: образование, специализация и подход к работе психолога.
+            Замените этот текст на реальный.
+
+
+        </p>
+
+        <h1 class="h5">Бережная терапия, которая поможет понять себя</h1>
+        <p class="text-muted">
+            Научитесь лучше понимать свои чувства, уверенно действовать в
+          различных жизненных ситуациях и находить решения, которые подходят
+          именно вам.
+        </p>
+
+        <div>
+            <a href="{% url 'consultations:request' %}" class="btn btn-primary">Записаться на консультацию</a>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <h2 class="h5 mb-3">Последние статьи</h2>
+
+        {% for article in recent_articles %}
+            <div class="d-flex gap-3 mb-3 align-items-center">
+                {% if article.image %}
+                    <img src="{{ article.image.url }}" alt="{{ article.title }}" class="rounded flex-shrink-0"
+                         style="width: 64px; height: 64px; object-fit: cover;">
+                {% else %}
+                    <div class="bg-secondary bg-opacity-25 rounded flex-shrink-0" style="width: 64px; height: 64px;"></div>
+                {% endif %}
+                <a href="{% url 'articles:detail' article.slug %}" class="text-decoration-none">{{ article.title }}</a>
+            </div>
+        {% empty %}
+            <p class="text-muted">Пока нет опубликованных статей.</p>
+        {% endfor %}
+
+        <a href="{% url 'articles:list' %}" class="btn btn-outline-secondary btn-sm mt-2">Все статьи</a>
+    </div>
+</div>
+{% endblock %}
