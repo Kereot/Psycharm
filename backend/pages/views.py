@@ -24,3 +24,7 @@ def contacts(request):
 
 def prices(request):
     return render(request, 'pages/prices.html', {'prices': ServicePrice.objects.all()})
+
+
+def privacy(request):
+    return render(request, 'pages/privacy.html')

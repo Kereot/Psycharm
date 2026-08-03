@@ -23,23 +23,24 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
-async function loadConsultations() {
+async function loadConsultations(url) {
     const root = document.getElementById('consultations-app');
     try {
-        const response = await fetch('/api/v1/consultations/?limit=100');
+        const response = await fetch(url);
         if (!response.ok) {
             root.innerHTML = '<div class="alert alert-danger">Не удалось загрузить заявки.</div>';
             return;
         }
         const data = await response.json();
-        renderTable(data.results);
+        renderTable(data);
     } catch (error) {
         root.innerHTML = '<div class="alert alert-danger">Ошибка сети при загрузке заявок.</div>';
     }
 }
 
-function renderTable(items) {
+function renderTable(data) {
     const root = document.getElementById('consultations-app');
+    const items = data.results;
 
     if (!items.length) {
         root.innerHTML = '<p>Заявок пока нет.</p>';
@@ -52,7 +53,10 @@ function renderTable(items) {
 
     const rows = items.map(item => `
         <tr data-id="${item.id}">
-            <td>${escapeHtml(item.name)}</td>
+            <td>
+                ${escapeHtml(item.name)}
+                ${item.notification_failed ? '<span class="badge bg-warning text-dark ms-1" title="Не удалось уведомить ни email, ни Telegram">⚠ уведомление не дошло</span>' : ''}
+            </td>
             <td>${escapeHtml(item.contact_method)}: ${escapeHtml(item.contact_value)}</td>
             <td style="max-width: 300px; white-space: pre-wrap;">${escapeHtml(item.message)}</td>
             <td>${new Date(item.created_at).toLocaleString('ru-RU')}</td>
@@ -75,20 +79,35 @@ function renderTable(items) {
             </thead>
             <tbody>${rows}</tbody>
         </table>
+        <nav class="d-flex justify-content-between align-items-center">
+            <span class="text-muted small">Всего заявок: ${data.count}</span>
+            <div class="btn-group">
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="prev-page" ${data.previous ? '' : 'disabled'}>← Назад</button>
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="next-page" ${data.next ? '' : 'disabled'}>Вперёд →</button>
+            </div>
+        </nav>
     `;
 
     root.querySelectorAll('tr[data-id]').forEach((row, index) => {
         const select = row.querySelector('.status-select');
         select.value = items[index].status;
+        select.dataset.previousValue = items[index].status;
         select.addEventListener('change', onStatusChange);
     });
+
+    if (data.previous) {
+        document.getElementById('prev-page').addEventListener('click', () => loadConsultations(data.previous));
+    }
+    if (data.next) {
+        document.getElementById('next-page').addEventListener('click', () => loadConsultations(data.next));
+    }
 }
 
 async function onStatusChange(event) {
     const select = event.target;
     const row = select.closest('tr');
     const id = row.dataset.id;
-    const previousValue = select.dataset.previousValue || select.value;
+    const previousValue = select.dataset.previousValue;
 
     const response = await fetch(`/api/v1/consultations/${id}/`, {
         method: 'PATCH',
@@ -108,6 +127,6 @@ async function onStatusChange(event) {
     select.dataset.previousValue = select.value;
 }
 
-loadConsultations();
+loadConsultations('/api/v1/consultations/?limit={{ page_size }}');
 </script>
 {% endblock %}

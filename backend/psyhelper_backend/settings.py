@@ -6,8 +6,11 @@ from dotenv import load_dotenv
 
 from common.constants import (
     API_PAGE_SIZE,
+    CONSULTATION_CREATE_THROTTLE_RATE,
+    CONSULTATION_CREATE_THROTTLE_SCOPE,
     DEFAULT_DB_PORT,
     DEFAULT_EMAIL_PORT,
+    EMAIL_TIMEOUT_SECONDS,
     JWT_ACCESS_TOKEN_LIFETIME_MINUTES,
     JWT_REFRESH_TOKEN_LIFETIME_DAYS,
 )
@@ -62,6 +65,9 @@ REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.LimitOffsetPagination',
     'PAGE_SIZE': API_PAGE_SIZE,
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'DEFAULT_THROTTLE_RATES': {
+        CONSULTATION_CREATE_THROTTLE_SCOPE: CONSULTATION_CREATE_THROTTLE_RATE,
+    },
 }
 
 SPECTACULAR_SETTINGS = {
@@ -124,7 +130,7 @@ TEMPLATES = [
 WSGI_APPLICATION = 'psyhelper_backend.wsgi.application'
 
 
-DB_ENGINE = os.getenv('DB_ENGINE', 'sqlite')
+DB_ENGINE = os.getenv('DB_ENGINE', 'sqlite3')
 
 if DB_ENGINE == 'postgres':
     DATABASES = {
@@ -192,6 +198,7 @@ EMAIL_PORT = int(os.getenv('EMAIL_PORT', DEFAULT_EMAIL_PORT))
 EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
 EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'True') == 'True'
+EMAIL_TIMEOUT = EMAIL_TIMEOUT_SECONDS
 DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'noreply@psyhelper.local')
 ADMIN_NOTIFICATION_EMAIL = os.getenv('ADMIN_NOTIFICATION_EMAIL', '')
 

@@ -43,6 +43,12 @@
     {% block content %}{% endblock %}
 </div>
 
+<footer class="border-top py-3 mt-auto">
+    <div class="container text-muted small">
+        <a href="{% url 'pages:privacy' %}">Политика обработки персональных данных</a>
+    </div>
+</footer>
+
 <script src="{% static 'vendor/bootstrap/js/bootstrap.bundle.min.js' %}"></script>
 </body>
 </html>

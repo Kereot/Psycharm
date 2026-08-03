@@ -5,7 +5,11 @@
 {% block content %}
 <div class="alert alert-success">
     <h1 class="h4">Спасибо!</h1>
-    <p class="mb-0">Ваша заявка принята. Мы свяжемся с вами в ближайшее время.</p>
+    <p class="mb-0">
+        Ваша заявка принята. Мы свяжемся с вами в ближайшее время. Если долго нет ответа —
+        на всякий случай напишите нам напрямую, контакты — на
+        <a href="{% url 'pages:contacts' %}">странице «Контакты»</a>.
+    </p>
 </div>
 
 <a href="{% url 'pages:home' %}" class="btn btn-outline-primary">На главную</a>

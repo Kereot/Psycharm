@@ -3,10 +3,13 @@ from functools import cached_property
 from django.db import IntegrityError, transaction
 from django.shortcuts import get_object_or_404
 from djoser.views import UserViewSet as BaseUserViewSet
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 
 from api.permissions import IsAdminOrReadOnly, IsOwnerOrAdminOrReadOnly
 from api.serializers import (
@@ -19,12 +22,8 @@ from api.serializers import (
     ServicePriceSerializer,
 )
 from articles.models import Article, Comment, Rating
-from common.exceptions import (
-    ConsultationNotificationFailed,
-    DuplicateConsultationError,
-    DuplicateRatingError,
-    NotificationDeliveryError,
-)
+from common.constants import CONSULTATION_CREATE_THROTTLE_SCOPE, CONSULTATION_STATUS_CLOSED
+from common.exceptions import DuplicateRatingError
 from consultations.models import Consultation
 from pages.models import ServicePrice
 
@@ -55,15 +54,34 @@ class UserViewSet(BaseUserViewSet):
 
 
 class ArticleViewSet(viewsets.ModelViewSet):
+    # На реальных запросах используется get_queryset().
     queryset = Article.objects.select_related('author')
     serializer_class = ArticleSerializer
     lookup_field = 'slug'
     permission_classes = (IsAdminOrReadOnly,)
 
+    def get_queryset(self):
+        if self.request.user.is_staff:
+            return self.queryset
+        return self.queryset.filter(is_published=True)
+
     def perform_create(self, serializer):
         serializer.save(author=self.request.user)
 
 
+_ARTICLE_SLUG_PARAMETER = OpenApiParameter(
+    name='article_slug',
+    type=OpenApiTypes.STR,
+    location=OpenApiParameter.PATH,
+    description='Slug статьи',
+)
+_ARTICLE_RELATION_ACTIONS = ('list', 'create', 'retrieve', 'update', 'partial_update', 'destroy')
+
+
+# Убирает warning drf-spectacular на тип параметра article_slug.
+@extend_schema_view(**{
+    action: extend_schema(parameters=[_ARTICLE_SLUG_PARAMETER]) for action in _ARTICLE_RELATION_ACTIONS
+})
 class ArticleRelationViewSet(viewsets.ModelViewSet):
     permission_classes = (IsOwnerOrAdminOrReadOnly,)
     relation_model = None
@@ -71,7 +89,8 @@ class ArticleRelationViewSet(viewsets.ModelViewSet):
     @cached_property
     def article(self):
         # Вьюсет создаётся заново на каждый запрос, так что кэш живёт ровно один запрос.
-        return get_object_or_404(Article, slug=self.kwargs['article_slug'])
+        queryset = Article.objects.all() if self.request.user.is_staff else Article.objects.filter(is_published=True)
+        return get_object_or_404(queryset, slug=self.kwargs['article_slug'])
 
     def get_queryset(self):
         return self.relation_model.objects.filter(article=self.article).select_related('author')
@@ -98,7 +117,8 @@ class RatingViewSet(ArticleRelationViewSet):
 
     def perform_create(self, serializer):
         try:
-            super().perform_create(serializer)
+            with transaction.atomic():
+                super().perform_create(serializer)
         except IntegrityError:
             raise DuplicateRatingError()
 
@@ -112,11 +132,18 @@ class ConsultationViewSet(
 ):
     queryset = Consultation.objects.select_related('user')
     serializer_class = ConsultationSerializer
+    throttle_scope = CONSULTATION_CREATE_THROTTLE_SCOPE
 
     def get_serializer_class(self):
         if self.action in ('update', 'partial_update'):
             return ConsultationStatusUpdateSerializer
         return ConsultationSerializer
+
+    def get_throttles(self):
+        # Ограничение частоты для создания заявок.
+        if self.action == 'create':
+            return (ScopedRateThrottle(),)
+        return ()
 
     def get_permissions(self):
         if self.action == 'create':
@@ -127,13 +154,24 @@ class ConsultationViewSet(
 
     def perform_create(self, serializer):
         user = self.request.user if self.request.user.is_authenticated else None
+        contact_method = serializer.validated_data['contact_method']
+        contact_value = serializer.validated_data['contact_value']
+
+        existing = Consultation.objects.filter(
+            contact_method=contact_method, contact_value=contact_value,
+        ).exclude(status=CONSULTATION_STATUS_CLOSED).first()
+
+        if existing is not None:
+            serializer.instance = existing
+            return
+
         try:
             with transaction.atomic():
                 serializer.save(user=user)
         except IntegrityError:
-            raise DuplicateConsultationError()
-        except NotificationDeliveryError:
-            raise ConsultationNotificationFailed()
+            serializer.instance = Consultation.objects.filter(
+                contact_method=contact_method, contact_value=contact_value,
+            ).exclude(status=CONSULTATION_STATUS_CLOSED).first()
 
     @action(detail=False, methods=('get',), url_path='my')
     def my(self, request):

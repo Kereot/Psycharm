@@ -7,12 +7,12 @@ from django.shortcuts import get_object_or_404, redirect, render
 
 from articles.forms import CommentForm, RatingForm
 from articles.models import Article
-from common.constants import API_PAGE_SIZE
+from common.constants import ARTICLE_LIST_PAGE_SIZE, ARTICLE_PENDING_FORM_SESSION_KEY
 
 
 def article_list(request):
     queryset = Article.objects.filter(is_published=True).select_related('author')
-    paginator = Paginator(queryset, API_PAGE_SIZE)
+    paginator = Paginator(queryset, ARTICLE_LIST_PAGE_SIZE)
     try:
         page_obj = paginator.page(request.GET.get('page') or 1)
     except (PageNotAnInteger, EmptyPage):
@@ -44,14 +44,28 @@ def article_detail(request, slug):
     )
 
     if request.method == 'POST' and not request.user.is_authenticated:
+        kind = 'submit_comment' if 'submit_comment' in request.POST else 'submit_rating'
+        request.session[ARTICLE_PENDING_FORM_SESSION_KEY] = {
+            'slug': article.slug,
+            'kind': kind,
+            'data': request.POST.dict(),
+        }
         return redirect_to_login(request.get_full_path())
 
     user_rating = None
     if request.user.is_authenticated:
         user_rating = article.ratings.filter(author=request.user).first()
 
-    comment_form = CommentForm()
-    rating_form = RatingForm(instance=user_rating)
+    # Восстанавливает текст/оценку, сохранённые выше при редиректе анонима на логин.
+    pending = request.session.pop(ARTICLE_PENDING_FORM_SESSION_KEY, None)
+    if pending and pending['slug'] != article.slug:
+        pending = None
+
+    comment_initial = pending['data'] if pending and pending['kind'] == 'submit_comment' else None
+    rating_initial = pending['data'] if pending and pending['kind'] == 'submit_rating' else None
+
+    comment_form = CommentForm(initial=comment_initial)
+    rating_form = RatingForm(initial=rating_initial, instance=user_rating)
 
     if request.method == 'POST' and 'submit_comment' in request.POST:
         comment_form = CommentForm(request.POST)

@@ -1,5 +1,7 @@
 from django import forms
 from django.contrib.auth.forms import AuthenticationForm, UserCreationForm
+from django.urls import reverse
+from django.utils.html import format_html
 
 from users.models import User
 
@@ -8,10 +10,13 @@ class BootstrapFormMixin:
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         for field in self.fields.values():
-            field.widget.attrs['class'] = 'form-control'
+            css_class = 'form-check-input' if isinstance(field.widget, forms.CheckboxInput) else 'form-control'
+            field.widget.attrs['class'] = css_class
 
 
 class RegistrationForm(BootstrapFormMixin, UserCreationForm):
+    privacy_consent = forms.BooleanField(required=True, label='')
+
     class Meta(UserCreationForm.Meta):
         model = User
         fields = ('username', 'email', 'first_name', 'last_name')
@@ -22,12 +27,19 @@ class RegistrationForm(BootstrapFormMixin, UserCreationForm):
             'last_name': 'Фамилия',
         }
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['privacy_consent'].label = format_html(
+            'Я согласен(на) с <a href="{}" target="_blank">политикой обработки персональных данных</a>',
+            reverse('pages:privacy'),
+        )
+
 
 class LoginForm(BootstrapFormMixin, AuthenticationForm):
     pass
 
 
-class ProfileForm(forms.ModelForm):
+class ProfileForm(BootstrapFormMixin, forms.ModelForm):
     class Meta:
         model = User
         fields = ('first_name', 'last_name', 'email', 'avatar')
@@ -37,9 +49,3 @@ class ProfileForm(forms.ModelForm):
             'email': 'Email',
             'avatar': 'Аватар',
         }
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        for name, field in self.fields.items():
-            if name != 'avatar':
-                field.widget.attrs['class'] = 'form-control'

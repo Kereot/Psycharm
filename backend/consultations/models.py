@@ -55,6 +55,7 @@ class Consultation(models.Model):
     )
     created_at = models.DateTimeField('Дата создания', auto_now_add=True)
     updated_at = models.DateTimeField('Дата обновления', auto_now=True)
+    notification_failed = models.BooleanField('Проблема с уведомлением', default=False)
 
     class Meta:
         ordering = ('-created_at',)

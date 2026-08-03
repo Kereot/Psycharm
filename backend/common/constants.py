@@ -6,6 +6,8 @@ FORBIDDEN_USERNAMES = ('me',)
 # Статьи (articles)
 ARTICLE_TITLE_MAX_LENGTH = 200
 ARTICLE_SLUG_MAX_LENGTH = 200
+ARTICLE_PENDING_FORM_SESSION_KEY = 'pending_article_form'
+ARTICLE_LIST_PAGE_SIZE = 10
 
 # Оценки (ratings)
 RATING_MIN_VALUE = 1
@@ -22,6 +24,7 @@ CONSULTATION_CONTACT_VALUE_MAX_LENGTH = 254
 CONSULTATION_CHOICE_FIELD_MAX_LENGTH = 20
 
 CONSULTATION_FORM_ROWS = 4
+STAFF_PANEL_PAGE_SIZE = 50
 
 CONSULTATION_STATUS_NEW = 'new'
 CONSULTATION_STATUS_IN_PROGRESS = 'in_progress'
@@ -45,6 +48,7 @@ CONTACT_METHOD_CHOICES = (
 
 # Уведомления (notifications)
 TELEGRAM_REQUEST_TIMEOUT_SECONDS = 5
+EMAIL_TIMEOUT_SECONDS = 5
 
 # Настройки проекта (settings)
 JWT_ACCESS_TOKEN_LIFETIME_MINUTES = 30
@@ -55,7 +59,12 @@ DEFAULT_DB_PORT = 5432
 
 # Сообщения об ошибках (используются и в DRF-исключениях, и в обычных Django-формах)
 DUPLICATE_RATING_MESSAGE = 'Вы уже оценили эту статью.'
-DUPLICATE_CONSULTATION_MESSAGE = 'У вас уже есть открытая заявка с этим контактом.'
+
+# Антиспам (anti-spam)
+CONSULTATION_CREATE_THROTTLE_SCOPE = 'consultation_create'
+CONSULTATION_CREATE_THROTTLE_RATE = '5/hour'
+HONEYPOT_FIELD_NAME = 'website'
+HONEYPOT_ERROR_MESSAGE = 'Обнаружен спам.'
 
 # Статичные страницы (pages)
 HOME_RECENT_ARTICLES_COUNT = 3

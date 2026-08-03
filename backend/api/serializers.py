@@ -1,14 +1,11 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import Q
 from djoser.serializers import UserSerializer as BaseUserSerializer
 from rest_framework import serializers
-from rest_framework.validators import UniqueTogetherValidator
 
 from articles.models import Article, Comment, Rating
-from common.constants import CONSULTATION_STATUS_CLOSED, DUPLICATE_CONSULTATION_MESSAGE
-from common.exceptions import DuplicateRatingError
+from common.constants import HONEYPOT_ERROR_MESSAGE, HONEYPOT_FIELD_NAME
 from common.fields import NoBlankBase64ImageField
-from consultations.models import CONTACT_VALIDATORS, Consultation
+from consultations.models import Consultation
 from pages.models import ServicePrice
 from users.models import User
 
@@ -63,41 +60,34 @@ class RatingSerializer(serializers.ModelSerializer):
         fields = ('id', 'author', 'value', 'created_at')
         read_only_fields = ('id', 'author', 'created_at')
 
-    def validate(self, attrs):
-        if self.instance is None:
-            article = self.context['article']
-            author = self.context['request'].user
-            if Rating.objects.filter(article=article, author=author).exists():
-                raise DuplicateRatingError()
-        return attrs
-
 
 class ConsultationSerializer(serializers.ModelSerializer):
     user = UserPublicSerializer(read_only=True)
+    website = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
         model = Consultation
-        fields = ('id', 'user', 'name', 'contact_method', 'contact_value', 'message', 'status', 'created_at',)
-        read_only_fields = ('id', 'user', 'status', 'created_at')
-        validators = (
-            UniqueTogetherValidator(
-                queryset=Consultation.objects.all(),
-                fields=('contact_method', 'contact_value'),
-                condition=~Q(status=CONSULTATION_STATUS_CLOSED),
-                message=DUPLICATE_CONSULTATION_MESSAGE,
-            ),
+        fields = (
+            'id', 'user', 'name', 'contact_method', 'contact_value', 'message',
+            'status', 'notification_failed', 'created_at', 'website',
         )
+        read_only_fields = ('id', 'user', 'status', 'notification_failed', 'created_at')
+        # Без этого DRF сам достроит UniqueTogetherValidator из UniqueConstraint модели.
+        validators = ()
 
     def validate(self, attrs):
+        # Honeypot: обычный пользователь это поле не видит и не заполняет, непустое значение предполагает бота.
+        if attrs.pop(HONEYPOT_FIELD_NAME, ''):
+            raise serializers.ValidationError({HONEYPOT_FIELD_NAME: HONEYPOT_ERROR_MESSAGE})
+
         if self.instance is not None:
             return attrs
 
-        validator = CONTACT_VALIDATORS.get(attrs['contact_method'])
-        if validator is not None:
-            try:
-                validator(attrs['contact_value'])
-            except DjangoValidationError as error:
-                raise serializers.ValidationError({'contact_value': error.messages})
+        instance = Consultation(contact_method=attrs['contact_method'], contact_value=attrs['contact_value'])
+        try:
+            instance.clean()
+        except DjangoValidationError as error:
+            raise serializers.ValidationError(error.message_dict)
         return attrs
 
 

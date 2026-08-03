@@ -1,12 +1,12 @@
-from django.conf import settings
-from django.db import IntegrityError, transaction
+from django.contrib import messages
+from django.db import IntegrityError
 from django.http import Http404
 from django.middleware.csrf import get_token
 from django.shortcuts import redirect, render
 
-from common.constants import DUPLICATE_CONSULTATION_MESSAGE
-from common.exceptions import NotificationDeliveryError
+from common.constants import CONSULTATION_STATUS_CLOSED, STAFF_PANEL_PAGE_SIZE
 from consultations.forms import ConsultationForm
+from consultations.models import Consultation
 
 
 def consultation_request(request):
@@ -14,16 +14,35 @@ def consultation_request(request):
         form = ConsultationForm(request.POST)
         if form.is_valid():
             consultation = form.save(commit=False)
-            consultation.user = request.user if request.user.is_authenticated else None
-            try:
-                with transaction.atomic():
+            user = request.user if request.user.is_authenticated else None
+            consultation.user = user
+
+            existing_by_contact = Consultation.objects.filter(
+                contact_method=consultation.contact_method,
+                contact_value=consultation.contact_value,
+            ).exclude(status=CONSULTATION_STATUS_CLOSED).exists()
+
+            was_created = False
+            if not existing_by_contact:
+                try:
                     consultation.save()
-            except IntegrityError:
-                form.add_error(None, DUPLICATE_CONSULTATION_MESSAGE)
-            except NotificationDeliveryError:
-                return redirect('consultations:contacts')
-            else:
-                return redirect('consultations:success')
+                    was_created = True
+                except IntegrityError:
+                    pass
+
+            if user is not None:
+                other_open = Consultation.objects.filter(user=user).exclude(status=CONSULTATION_STATUS_CLOSED)
+                if was_created:
+                    other_open = other_open.exclude(pk=consultation.pk)
+                existing_for_user = other_open.order_by('-created_at').first()
+                if existing_for_user is not None:
+                    messages.info(
+                        request,
+                        f'У вас уже есть заявка в статусе «{existing_for_user.get_status_display()}» '
+                        f'от {existing_for_user.created_at:%d.%m.%Y}.',
+                    )
+
+            return redirect('consultations:success')
     else:
         form = ConsultationForm()
 
@@ -34,16 +53,10 @@ def consultation_success(request):
     return render(request, 'consultations/success.html')
 
 
-def consultation_contacts(request):
-    return render(request, 'consultations/contacts.html', {
-        'contact_email': settings.ADMIN_NOTIFICATION_EMAIL,
-    })
-
-
 def staff_panel(request):
     if not (request.user.is_authenticated and request.user.is_staff):
         raise Http404
 
     # cookie csrftoken
     get_token(request)
-    return render(request, 'consultations/staff_panel.html')
+    return render(request, 'consultations/staff_panel.html', {'page_size': STAFF_PANEL_PAGE_SIZE})
