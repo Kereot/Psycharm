@@ -1,3 +1,4 @@
+import logging
 from functools import cached_property
 
 from django.db import IntegrityError, transaction
@@ -26,6 +27,8 @@ from common.constants import CONSULTATION_CREATE_THROTTLE_SCOPE, CONSULTATION_ST
 from common.exceptions import DuplicateRatingError
 from consultations.models import Consultation
 from pages.models import ServicePrice
+
+logger = logging.getLogger(__name__)
 
 
 class UserViewSet(BaseUserViewSet):
@@ -172,6 +175,16 @@ class ConsultationViewSet(
             serializer.instance = Consultation.objects.filter(
                 contact_method=contact_method, contact_value=contact_value,
             ).exclude(status=CONSULTATION_STATUS_CLOSED).first()
+
+    def perform_update(self, serializer):
+        old_status = serializer.instance.status
+        serializer.save()
+
+        if serializer.instance.status != old_status:
+            logger.info(
+                'Заявка id=%s: статус изменён %s -> %s (пользователь id=%s)',
+                serializer.instance.pk, old_status, serializer.instance.status, self.request.user.pk,
+            )
 
     @action(detail=False, methods=('get',), url_path='my')
     def my(self, request):

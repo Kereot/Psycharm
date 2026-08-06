@@ -1,3 +1,4 @@
+import logging
 import threading
 
 from django.db import transaction
@@ -6,6 +7,8 @@ from django.dispatch import receiver
 
 from consultations.models import Consultation
 from consultations.notifications import notify_admin_of_new_consultation
+
+logger = logging.getLogger(__name__)
 
 
 def _notify_and_mark_on_failure(consultation_id):
@@ -24,6 +27,11 @@ def _notify_and_mark_on_failure(consultation_id):
 def notify_admin_of_new_consultation_signal(sender, instance, created, **kwargs):
     if not created:
         return
+
+    logger.info(
+        'Новая заявка на консультацию id=%s способ связи=%s пользователь id=%s',
+        instance.pk, instance.contact_method, instance.user_id,
+    )
 
     transaction.on_commit(
         lambda: threading.Thread(
