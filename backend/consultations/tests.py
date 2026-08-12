@@ -1,3 +1,4 @@
+import time
 from unittest.mock import patch
 
 from django.contrib.messages import get_messages
@@ -6,7 +7,12 @@ from django.test import Client, TestCase
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from common.constants import CONSULTATION_STATUS_CLOSED
+from common.constants import (
+    CONSULTATION_SESSION_CLAIM_KEY,
+    CONSULTATION_SESSION_CLAIM_TTL_SECONDS,
+    CONSULTATION_STATUS_CLOSED,
+    FORM_SESSION_WRITE_RATE_LIMIT,
+)
 from consultations.models import Consultation
 from consultations.signals import _notify_and_mark_on_failure
 from users.models import User
@@ -27,9 +33,11 @@ OWN_OPEN_CONSULTATION_MESSAGE_SUBSTRING = 'уже есть заявка'
 
 class ThrottleCacheClearingTestCase(TestCase):
     """
-    ScopedRateThrottle на создании заявок хранит счётчик в django.core.cache,
-    который не откатывается вместе с транзакцией TestCase — без явной очистки
-    тесты в одном прогоне начинают ловить 429 друг от друга.
+    И ScopedRateThrottle на создании заявок, и is_rate_limited() в
+    remember_anonymous_consultation хранят счётчики в django.core.cache, который
+    не откатывается вместе с транзакцией TestCase — без явной очистки тесты в
+    одном прогоне (default REMOTE_ADDR у django.test.Client один и тот же для
+    всех) начинают друг другу мешать через общий лимит.
     """
 
     def setUp(self):
@@ -76,8 +84,39 @@ class ConsultationDuplicateOracleTests(ThrottleCacheClearingTestCase):
 
         self.assertEqual(first.status_code, status.HTTP_201_CREATED)
         self.assertEqual(second.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(first.data['id'], second.data['id'])
         self.assertEqual(Consultation.objects.filter(contact_value=DEFAULT_CONTACT_VALUE).count(), 1)
+
+    def test_api_duplicate_response_does_not_leak_the_existing_record(self):
+        # Настоящая жертва — уже существующая заявка с чужими данными.
+        victim = Consultation.objects.create(
+            name='Реальное Имя Жертвы', contact_method='phone', contact_value=DEFAULT_CONTACT_VALUE,
+            message='Секретное обращение к психотерапевту',
+        )
+        client = APIClient()
+
+        resp = client.post(
+            CONSULTATION_API_URL,
+            _api_payload(name='Атакующий', message='проверка контакта'),
+            format='json',
+        )
+
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        # Ответ не должен содержать ни служебных полей, ни (тем более) данных чужой записи.
+        for leaking_field in ('id', 'user', 'status', 'notification_failed', 'created_at'):
+            self.assertNotIn(leaking_field, resp.data)
+        self.assertNotIn(victim.name, str(resp.data))
+        self.assertNotIn(victim.message, str(resp.data))
+        # Ответ отражает то, что прислал сам вызывающий, а не жертву.
+        self.assertEqual(resp.data['name'], 'Атакующий')
+        self.assertEqual(resp.data['message'], 'проверка контакта')
+
+    def test_api_genuine_and_duplicate_create_responses_have_identical_shape(self):
+        # Иначе по одному только набору ключей в ответе можно узнать, был дубль или нет.
+        client = APIClient()
+        genuine = client.post(CONSULTATION_API_URL, _api_payload(), format='json')
+        duplicate = client.post(CONSULTATION_API_URL, _api_payload(message='Другое'), format='json')
+
+        self.assertEqual(set(genuine.data.keys()), set(duplicate.data.keys()))
 
     def test_form_duplicate_is_silent_and_not_double_created(self):
         client = Client()
@@ -308,3 +347,160 @@ class StaffPanelAccessTests(TestCase):
         resp = client.get(STAFF_PANEL_URL)
 
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+
+REGISTER_URL = '/accounts/register/'
+LOGIN_URL = '/accounts/login/'
+VALID_PASSWORD = 'Str0ngP@ssw0rd2026'
+
+
+def _registration_payload(**overrides):
+    payload = {
+        'username': 'claimtestuser',
+        'email': 'claimtestuser@example.com',
+        'first_name': 'Иван',
+        'last_name': 'Иванов',
+        'password1': VALID_PASSWORD,
+        'password2': VALID_PASSWORD,
+        'privacy_consent': True,
+    }
+    payload.update(overrides)
+    return payload
+
+
+class SessionBasedConsultationClaimingTests(ThrottleCacheClearingTestCase):
+    """
+    Привязка анонимной заявки к новому/входящему в систему пользователю —
+    только по id, запомненному в сессии в момент реального создания заявки.
+    Привязка по email небезопасна (email никем не подтверждается при
+    регистрации — кто угодно может вписать чужой), поэтому используется
+    другой, гораздо более высокий барьер: тот же браузер/сессия.
+    """
+
+    def test_anonymous_form_submission_is_claimed_on_registration(self):
+        client = Client()
+        client.post(CONSULTATION_FORM_URL, _form_payload())
+        consultation = Consultation.objects.get(contact_value=DEFAULT_CONTACT_VALUE)
+        self.assertIsNone(consultation.user_id)
+
+        client.post(REGISTER_URL, _registration_payload())
+
+        consultation.refresh_from_db()
+        self.assertEqual(consultation.user.username, 'claimtestuser')
+
+    def test_anonymous_form_submission_is_claimed_on_login(self):
+        existing_user = _create_user('existing_login_user')
+        client = Client()
+        client.post(CONSULTATION_FORM_URL, _form_payload())
+        consultation = Consultation.objects.get(contact_value=DEFAULT_CONTACT_VALUE)
+
+        client.post(LOGIN_URL, {'username': 'existing_login_user', 'password': 'pass12345'})
+
+        consultation.refresh_from_db()
+        self.assertEqual(consultation.user_id, existing_user.pk)
+
+    def test_duplicate_submission_is_not_remembered_and_not_claimable(self):
+        # "Жертва" — реальный автор заявки.
+        victim_client = Client()
+        victim_client.post(CONSULTATION_FORM_URL, _form_payload())
+        victim_consultation = Consultation.objects.get(contact_value=DEFAULT_CONTACT_VALUE)
+
+        # "Атакующий" знает контакт жертвы и шлёт заявку с тем же телефоном — это дубль,
+        # свою заявку атакующий не создаёт, значит и запоминать в его сессии нечего.
+        attacker_client = Client()
+        attacker_client.post(CONSULTATION_FORM_URL, _form_payload(message='другое сообщение'))
+        attacker_client.post(REGISTER_URL, _registration_payload(
+            username='attacker', email='attacker@example.com',
+        ))
+
+        victim_consultation.refresh_from_db()
+        self.assertIsNone(victim_consultation.user_id)
+
+    def test_different_session_registration_does_not_claim(self):
+        Client().post(CONSULTATION_FORM_URL, _form_payload())
+        consultation = Consultation.objects.get(contact_value=DEFAULT_CONTACT_VALUE)
+
+        # Совсем не связанный с заявкой человек регистрируется в своей сессии.
+        Client().post(REGISTER_URL, _registration_payload())
+
+        consultation.refresh_from_db()
+        self.assertIsNone(consultation.user_id)
+
+    def test_api_anonymous_create_is_claimed_on_djoser_registration(self):
+        client = APIClient()
+        create_resp = client.post(CONSULTATION_API_URL, _api_payload(), format='json')
+        self.assertEqual(create_resp.status_code, status.HTTP_201_CREATED)
+        consultation = Consultation.objects.get(contact_value=DEFAULT_CONTACT_VALUE)
+
+        client.post('/api/v1/users/', {
+            'username': 'apiclaimuser', 'email': 'apiclaimuser@example.com',
+            'first_name': 'А', 'last_name': 'Б', 'password': VALID_PASSWORD,
+        }, format='json')
+
+        consultation.refresh_from_db()
+        self.assertEqual(consultation.user.username, 'apiclaimuser')
+
+    def test_claimed_consultation_becomes_visible_via_my_action(self):
+        client = Client()
+        client.post(CONSULTATION_FORM_URL, _form_payload())
+        client.post(REGISTER_URL, _registration_payload())
+        user = User.objects.get(username='claimtestuser')
+
+        api_client = APIClient()
+        api_client.force_authenticate(user=user)
+        resp = api_client.get(CONSULTATION_MY_API_URL)
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(resp.data), 1)
+
+    def test_stale_session_entry_beyond_ttl_is_not_claimed(self):
+        # Обещано анониму на странице успеха: связывание работает, только если
+        # зайти прямо сейчас, а не когда-нибудь в течение всего срока жизни cookie.
+        client = Client()
+        client.post(CONSULTATION_FORM_URL, _form_payload())
+        consultation = Consultation.objects.get(contact_value=DEFAULT_CONTACT_VALUE)
+
+        session = client.session
+        stale_timestamp = time.time() - CONSULTATION_SESSION_CLAIM_TTL_SECONDS - 1
+        session[CONSULTATION_SESSION_CLAIM_KEY] = [[consultation.pk, stale_timestamp]]
+        session.save()
+
+        client.post(REGISTER_URL, _registration_payload())
+
+        consultation.refresh_from_db()
+        self.assertIsNone(consultation.user_id)
+
+    def test_fresh_session_entry_within_ttl_is_claimed(self):
+        # Тот же сценарий, но запись ещё не устарела — контрольная проверка,
+        # что предыдущий тест падает именно из-за TTL, а не из-за поломки формата.
+        client = Client()
+        client.post(CONSULTATION_FORM_URL, _form_payload())
+        consultation = Consultation.objects.get(contact_value=DEFAULT_CONTACT_VALUE)
+
+        session = client.session
+        fresh_timestamp = time.time() - CONSULTATION_SESSION_CLAIM_TTL_SECONDS + 60
+        session[CONSULTATION_SESSION_CLAIM_KEY] = [[consultation.pk, fresh_timestamp]]
+        session.save()
+
+        client.post(REGISTER_URL, _registration_payload())
+
+        consultation.refresh_from_db()
+        self.assertEqual(consultation.user.username, 'claimtestuser')
+
+    def test_remember_is_rate_limited_per_ip(self):
+        client = Client()
+        consultation_ids = []
+        for i in range(FORM_SESSION_WRITE_RATE_LIMIT + 1):
+            client.post(CONSULTATION_FORM_URL, _form_payload(contact_value=f'+799900000{i}'))
+            consultation_ids.append(Consultation.objects.get(contact_value=f'+799900000{i}').pk)
+
+        # Все заявки реально создались...
+        self.assertEqual(Consultation.objects.filter(pk__in=consultation_ids).count(), FORM_SESSION_WRITE_RATE_LIMIT + 1)
+
+        client.post(REGISTER_URL, _registration_payload())
+
+        # ...но запомнить (а значит и связать) удалось не больше лимита.
+        linked_count = Consultation.objects.filter(pk__in=consultation_ids, user__isnull=False).count()
+        self.assertEqual(linked_count, FORM_SESSION_WRITE_RATE_LIMIT)
+
+

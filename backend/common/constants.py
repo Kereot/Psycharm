@@ -25,6 +25,11 @@ CONSULTATION_CHOICE_FIELD_MAX_LENGTH = 20
 
 CONSULTATION_FORM_ROWS = 4
 STAFF_PANEL_PAGE_SIZE = 50
+CONSULTATION_SESSION_CLAIM_KEY = 'anonymous_consultation_ids'
+# Заявка, привязанная к аккаунту дольше этого времени после создания, уже не считается
+# «этой же сессии» — совпадает с тем, что написано анониму на странице успеха: связывание
+# работает, только если зайти/зарегистрироваться прямо сейчас, а не когда-нибудь потом.
+CONSULTATION_SESSION_CLAIM_TTL_SECONDS = 3600
 
 CONSULTATION_STATUS_NEW = 'new'
 CONSULTATION_STATUS_IN_PROGRESS = 'in_progress'
@@ -65,6 +70,10 @@ CONSULTATION_CREATE_THROTTLE_SCOPE = 'consultation_create'
 CONSULTATION_CREATE_THROTTLE_RATE = '5/hour'
 HONEYPOT_FIELD_NAME = 'website'
 HONEYPOT_ERROR_MESSAGE = 'Обнаружен спам.'
+# Для обычных Django-вьюх, куда ScopedRateThrottle (DRF-only) не дотягивается: анонимные
+# записи в сессию (заявка на консультацию, "запомненный" текст комментария/оценки).
+FORM_SESSION_WRITE_RATE_LIMIT = 5
+FORM_SESSION_WRITE_RATE_LIMIT_WINDOW_SECONDS = 3600
 
 # Статичные страницы (pages)
 HOME_RECENT_ARTICLES_COUNT = 3

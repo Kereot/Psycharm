@@ -61,17 +61,13 @@ class RatingSerializer(serializers.ModelSerializer):
         read_only_fields = ('id', 'author', 'created_at')
 
 
-class ConsultationSerializer(serializers.ModelSerializer):
-    user = UserPublicSerializer(read_only=True)
+class ConsultationCreateSerializer(serializers.ModelSerializer):
+
     website = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
         model = Consultation
-        fields = (
-            'id', 'user', 'name', 'contact_method', 'contact_value', 'message',
-            'status', 'notification_failed', 'created_at', 'website',
-        )
-        read_only_fields = ('id', 'user', 'status', 'notification_failed', 'created_at')
+        fields = ('name', 'contact_method', 'contact_value', 'message', 'website')
         # Без этого DRF сам достроит UniqueTogetherValidator из UniqueConstraint модели.
         validators = ()
 
@@ -80,15 +76,25 @@ class ConsultationSerializer(serializers.ModelSerializer):
         if attrs.pop(HONEYPOT_FIELD_NAME, ''):
             raise serializers.ValidationError({HONEYPOT_FIELD_NAME: HONEYPOT_ERROR_MESSAGE})
 
-        if self.instance is not None:
-            return attrs
-
         instance = Consultation(contact_method=attrs['contact_method'], contact_value=attrs['contact_value'])
         try:
             instance.clean()
         except DjangoValidationError as error:
             raise serializers.ValidationError(error.message_dict)
         return attrs
+
+
+class ConsultationSerializer(serializers.ModelSerializer):
+
+    user = UserPublicSerializer(read_only=True)
+
+    class Meta:
+        model = Consultation
+        fields = (
+            'id', 'user', 'name', 'contact_method', 'contact_value', 'message',
+            'status', 'notification_failed', 'created_at',
+        )
+        read_only_fields = fields
 
 
 class ConsultationStatusUpdateSerializer(serializers.ModelSerializer):

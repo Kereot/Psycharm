@@ -17,6 +17,7 @@ from api.serializers import (
     ArticleSerializer,
     AvatarSerializer,
     CommentSerializer,
+    ConsultationCreateSerializer,
     ConsultationSerializer,
     ConsultationStatusUpdateSerializer,
     RatingSerializer,
@@ -26,12 +27,18 @@ from articles.models import Article, Comment, Rating
 from common.constants import CONSULTATION_CREATE_THROTTLE_SCOPE, CONSULTATION_STATUS_CLOSED
 from common.exceptions import DuplicateRatingError
 from consultations.models import Consultation
+from consultations.services import claim_session_consultations, remember_anonymous_consultation
 from pages.models import ServicePrice
 
 logger = logging.getLogger(__name__)
 
 
 class UserViewSet(BaseUserViewSet):
+    def perform_create(self, serializer, *args, **kwargs):
+        super().perform_create(serializer, *args, **kwargs)
+        # То же браузерное происхождение, что и у сайтовой регистрации — см. consultations/services.py.
+        claim_session_consultations(self.request, serializer.instance)
+
     @action(
         detail=False,
         methods=('put', 'delete'),
@@ -138,6 +145,8 @@ class ConsultationViewSet(
     throttle_scope = CONSULTATION_CREATE_THROTTLE_SCOPE
 
     def get_serializer_class(self):
+        if self.action == 'create':
+            return ConsultationCreateSerializer
         if self.action in ('update', 'partial_update'):
             return ConsultationStatusUpdateSerializer
         return ConsultationSerializer
@@ -156,25 +165,27 @@ class ConsultationViewSet(
         return (IsAdminUser(),)
 
     def perform_create(self, serializer):
+        # Сериализуется validated_data вместо реальной записи из БД — иначе ответ на
+        # дубль отдавал бы чужие данные, сообщение и статус.
         user = self.request.user if self.request.user.is_authenticated else None
         contact_method = serializer.validated_data['contact_method']
         contact_value = serializer.validated_data['contact_value']
 
-        existing = Consultation.objects.filter(
+        already_exists = Consultation.objects.filter(
             contact_method=contact_method, contact_value=contact_value,
-        ).exclude(status=CONSULTATION_STATUS_CLOSED).first()
+        ).exclude(status=CONSULTATION_STATUS_CLOSED).exists()
 
-        if existing is not None:
-            serializer.instance = existing
+        if already_exists:
             return
 
         try:
             with transaction.atomic():
                 serializer.save(user=user)
         except IntegrityError:
-            serializer.instance = Consultation.objects.filter(
-                contact_method=contact_method, contact_value=contact_value,
-            ).exclude(status=CONSULTATION_STATUS_CLOSED).first()
+            return
+
+        if user is None:
+            remember_anonymous_consultation(self.request, serializer.instance)
 
     def perform_update(self, serializer):
         old_status = serializer.instance.status

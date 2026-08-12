@@ -8,3 +8,4 @@ media/
 staticfiles/
 *.log
 .idea/
+.pytest_cache/

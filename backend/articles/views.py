@@ -7,7 +7,13 @@ from django.shortcuts import get_object_or_404, redirect, render
 
 from articles.forms import CommentForm, RatingForm
 from articles.models import Article
-from common.constants import ARTICLE_LIST_PAGE_SIZE, ARTICLE_PENDING_FORM_SESSION_KEY
+from common.constants import (
+    ARTICLE_LIST_PAGE_SIZE,
+    ARTICLE_PENDING_FORM_SESSION_KEY,
+    FORM_SESSION_WRITE_RATE_LIMIT,
+    FORM_SESSION_WRITE_RATE_LIMIT_WINDOW_SECONDS,
+)
+from common.rate_limit import is_rate_limited
 
 
 def article_list(request):
@@ -44,12 +50,17 @@ def article_detail(request, slug):
     )
 
     if request.method == 'POST' and not request.user.is_authenticated:
-        kind = 'submit_comment' if 'submit_comment' in request.POST else 'submit_rating'
-        request.session[ARTICLE_PENDING_FORM_SESSION_KEY] = {
-            'slug': article.slug,
-            'kind': kind,
-            'data': request.POST.dict(),
-        }
+        # Ограничение по IP против флуд POST запросами.
+        ip = request.META.get('REMOTE_ADDR', '')
+        if not is_rate_limited(
+            'article_pending_form', ip, FORM_SESSION_WRITE_RATE_LIMIT, FORM_SESSION_WRITE_RATE_LIMIT_WINDOW_SECONDS,
+        ):
+            kind = 'submit_comment' if 'submit_comment' in request.POST else 'submit_rating'
+            request.session[ARTICLE_PENDING_FORM_SESSION_KEY] = {
+                'slug': article.slug,
+                'kind': kind,
+                'data': request.POST.dict(),
+            }
         return redirect_to_login(request.get_full_path())
 
     user_rating = None

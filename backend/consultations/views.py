@@ -7,6 +7,7 @@ from django.shortcuts import redirect, render
 from common.constants import CONSULTATION_STATUS_CLOSED, STAFF_PANEL_PAGE_SIZE
 from consultations.forms import ConsultationForm
 from consultations.models import Consultation
+from consultations.services import remember_anonymous_consultation
 
 
 def consultation_request(request):
@@ -29,6 +30,9 @@ def consultation_request(request):
                     was_created = True
                 except IntegrityError:
                     pass
+
+            if was_created and user is None:
+                remember_anonymous_consultation(request, consultation)
 
             if user is not None:
                 other_open = Consultation.objects.filter(user=user).exclude(status=CONSULTATION_STATUS_CLOSED)

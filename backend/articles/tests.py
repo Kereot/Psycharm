@@ -1,12 +1,13 @@
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.test import Client, TestCase
 from rest_framework import status
 from rest_framework.test import APIClient
 
 from articles.models import Article, Comment, Rating
 from articles.signals import _notify_in_background
-from common.constants import ARTICLE_LIST_PAGE_SIZE
+from common.constants import ARTICLE_LIST_PAGE_SIZE, ARTICLE_PENDING_FORM_SESSION_KEY, FORM_SESSION_WRITE_RATE_LIMIT
 from users.models import User
 
 TYPED_COMMENT_TEXT = 'мой комментарий'
@@ -105,7 +106,15 @@ class LostCommentRecoveryTests(TestCase):
     """
     Анонимный POST на страницу статьи редиректит на логин; введённый текст
     должен восстанавливаться после входа, а не теряться.
+
+    is_rate_limited() в article_detail хранит счётчик в django.core.cache,
+    который не откатывается вместе с транзакцией TestCase — без явной очистки
+    тесты в одном прогоне (default REMOTE_ADDR у django.test.Client один и тот
+    же для всех) начинают друг другу мешать через общий лимит.
     """
+
+    def setUp(self):
+        cache.clear()
 
     def test_typed_comment_survives_login_redirect(self):
         author = _create_user('author6')
@@ -123,6 +132,24 @@ class LostCommentRecoveryTests(TestCase):
 
         self.assertContains(get_resp, TYPED_COMMENT_TEXT)
         self.assertFalse(Comment.objects.filter(article=article, text=TYPED_COMMENT_TEXT).exists())
+
+    def test_pending_stash_is_rate_limited_per_ip(self):
+        author = _create_user('rate_limit_author')
+        limit = FORM_SESSION_WRITE_RATE_LIMIT
+        articles = [_create_article(author, slug=f'rate-limit-article-{i}') for i in range(limit + 1)]
+        client = Client()
+
+        for article in articles[:limit]:
+            client.post(f'/articles/{article.slug}/', {'submit_comment': '1', 'text': 'text'})
+
+        last_allowed_slug = client.session[ARTICLE_PENDING_FORM_SESSION_KEY]['slug']
+        self.assertEqual(last_allowed_slug, articles[limit - 1].slug)
+
+        over_limit_article = articles[limit]
+        client.post(f'/articles/{over_limit_article.slug}/', {'submit_comment': '1', 'text': 'over limit'})
+
+        # Попытка сверх лимита не должна была перезаписать сессию.
+        self.assertEqual(client.session[ARTICLE_PENDING_FORM_SESSION_KEY]['slug'], last_allowed_slug)
 
 
 class ArticleListViewTests(TestCase):
