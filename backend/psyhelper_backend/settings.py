@@ -2,10 +2,13 @@ import os
 from datetime import timedelta
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 from common.constants import (
     API_PAGE_SIZE,
+    COMMENT_CREATE_THROTTLE_RATE,
+    COMMENT_CREATE_THROTTLE_SCOPE,
     CONSULTATION_CREATE_THROTTLE_RATE,
     CONSULTATION_CREATE_THROTTLE_SCOPE,
     DEFAULT_DB_PORT,
@@ -20,9 +23,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / '.env')
 
 
-SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-sn4hi)lp@m=&foo-d96c84(&%)07(3(_u@qm*cv^t_%%ia%537')
+SECRET_KEY = os.getenv('SECRET_KEY')
+if not SECRET_KEY:
+    raise ImproperlyConfigured('SECRET_KEY не задан в окружении.')
 
-DEBUG = os.getenv('DEBUG', 'True') == 'True'
+DEBUG = os.getenv('DEBUG', 'false').lower() in ('true', '1', 'yes', 'on')
 
 ALLOWED_HOSTS = [h.strip() for h in os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',') if h.strip()]
 
@@ -67,6 +72,7 @@ REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'DEFAULT_THROTTLE_RATES': {
         CONSULTATION_CREATE_THROTTLE_SCOPE: CONSULTATION_CREATE_THROTTLE_RATE,
+        COMMENT_CREATE_THROTTLE_SCOPE: COMMENT_CREATE_THROTTLE_RATE,
     },
 }
 

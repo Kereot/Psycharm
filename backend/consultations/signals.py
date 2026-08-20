@@ -1,7 +1,7 @@
 import logging
 import threading
 
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
@@ -13,14 +13,17 @@ logger = logging.getLogger(__name__)
 
 def _notify_and_mark_on_failure(consultation_id):
     try:
-        consultation = Consultation.objects.get(pk=consultation_id)
-    except Consultation.DoesNotExist:
-        return
+        try:
+            consultation = Consultation.objects.get(pk=consultation_id)
+        except Consultation.DoesNotExist:
+            return
 
-    email_sent, telegram_sent = notify_admin_of_new_consultation(consultation)
+        email_sent, telegram_sent = notify_admin_of_new_consultation(consultation)
 
-    if not email_sent and not telegram_sent:
-        Consultation.objects.filter(pk=consultation_id).update(notification_failed=True)
+        if email_sent or telegram_sent:
+            Consultation.objects.filter(pk=consultation_id).update(notification_failed=False)
+    finally:
+        connection.close()
 
 
 @receiver(post_save, sender=Consultation)

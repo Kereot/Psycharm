@@ -38,6 +38,18 @@ async function loadConsultations(url) {
     }
 }
 
+function groupByContact(items) {
+    const groups = new Map();
+    for (const item of items) {
+        const key = `${item.contact_method}:${item.contact_value}`;
+        if (!groups.has(key)) {
+            groups.set(key, []);
+        }
+        groups.get(key).push(item);
+    }
+    return Array.from(groups.values());
+}
+
 function renderTable(data) {
     const root = document.getElementById('consultations-app');
     const items = data.results;
@@ -51,20 +63,29 @@ function renderTable(data) {
         .map(([value, label]) => `<option value="${value}">${label}</option>`)
         .join('');
 
-    const rows = items.map(item => `
-        <tr data-id="${item.id}">
-            <td>
-                ${escapeHtml(item.name)}
-                ${item.notification_failed ? '<span class="badge bg-warning text-dark ms-1" title="Не удалось уведомить ни email, ни Telegram">⚠ уведомление не дошло</span>' : ''}
-            </td>
-            <td>${escapeHtml(item.contact_method)}: ${escapeHtml(item.contact_value)}</td>
-            <td style="max-width: 300px; white-space: pre-wrap;">${escapeHtml(item.message)}</td>
-            <td>${new Date(item.created_at).toLocaleString('ru-RU')}</td>
-            <td>
-                <select class="form-select form-select-sm status-select">${options}</select>
-            </td>
-        </tr>
-    `).join('');
+    const groups = groupByContact(items);
+
+    const rows = groups.map((group, groupIndex) => {
+        const rowClass = groupIndex % 2 ? 'table-light' : '';
+        const groupBadge = group.length > 1
+            ? `<span class="badge bg-secondary ms-1" title="Заявок с этим контактом на этой странице: ${group.length}">×${group.length}</span>`
+            : '';
+
+        return group.map((item, indexInGroup) => `
+            <tr data-id="${item.id}" class="${rowClass}">
+                <td>
+                    ${escapeHtml(item.name)}
+                    ${item.notification_failed ? '<span class="badge bg-warning text-dark ms-1" title="Не удалось уведомить ни email, ни Telegram">⚠ уведомление не дошло</span>' : ''}
+                </td>
+                <td>${escapeHtml(item.contact_method)}: ${escapeHtml(item.contact_value)}${indexInGroup === 0 ? groupBadge : ''}</td>
+                <td style="max-width: 300px; white-space: pre-wrap;">${escapeHtml(item.message)}</td>
+                <td>${new Date(item.created_at).toLocaleString('ru-RU')}</td>
+                <td>
+                    <select class="form-select form-select-sm status-select">${options}</select>
+                </td>
+            </tr>
+        `).join('');
+    }).join('');
 
     root.innerHTML = `
         <table class="table align-middle">
@@ -88,10 +109,12 @@ function renderTable(data) {
         </nav>
     `;
 
-    root.querySelectorAll('tr[data-id]').forEach((row, index) => {
+    const itemsById = new Map(items.map(item => [item.id, item]));
+    root.querySelectorAll('tr[data-id]').forEach(row => {
+        const item = itemsById.get(Number(row.dataset.id));
         const select = row.querySelector('.status-select');
-        select.value = items[index].status;
-        select.dataset.previousValue = items[index].status;
+        select.value = item.status;
+        select.dataset.previousValue = item.status;
         select.addEventListener('change', onStatusChange);
     });
 

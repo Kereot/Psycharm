@@ -60,7 +60,3 @@ class ConsultationForm(forms.ModelForm):
         if value:
             raise forms.ValidationError(HONEYPOT_ERROR_MESSAGE)
         return value
-
-    def validate_unique(self):
-        # Скрывает факт дубликата. Дубликаты обрабатываются молча в consultations/views.py.
-        pass

@@ -1,7 +1,7 @@
 import logging
 import threading
 
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
@@ -12,11 +12,17 @@ logger = logging.getLogger(__name__)
 
 
 def _notify_in_background(comment_id):
+    # Соединение открывается в thread-local этого потока и никогда не закроется
+    # само — request_finished (на который завязан close_old_connections) в фоновом
+    # потоке не срабатывает. На SQLite незаметно, на Postgres — растущее число сессий.
     try:
-        comment = Comment.objects.select_related('article', 'author').get(pk=comment_id)
-    except Comment.DoesNotExist:
-        return
-    notify_admin_of_new_comment(comment)
+        try:
+            comment = Comment.objects.select_related('article', 'author').get(pk=comment_id)
+        except Comment.DoesNotExist:
+            return
+        notify_admin_of_new_comment(comment)
+    finally:
+        connection.close()
 
 
 @receiver(post_save, sender=Comment)

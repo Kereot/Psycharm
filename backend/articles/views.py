@@ -10,6 +10,8 @@ from articles.models import Article
 from common.constants import (
     ARTICLE_LIST_PAGE_SIZE,
     ARTICLE_PENDING_FORM_SESSION_KEY,
+    COMMENT_CREATE_RATE_LIMIT,
+    COMMENT_CREATE_RATE_LIMIT_WINDOW_SECONDS,
     FORM_SESSION_WRITE_RATE_LIMIT,
     FORM_SESSION_WRITE_RATE_LIMIT_WINDOW_SECONDS,
 )
@@ -79,6 +81,15 @@ def article_detail(request, slug):
     rating_form = RatingForm(initial=rating_initial, instance=user_rating)
 
     if request.method == 'POST' and 'submit_comment' in request.POST:
+        # Каждый комментарий поднимает фоновый поток с SMTP+Telegram (см. articles/signals.py) —
+        # без лимита залогиненный пользователь может в цикле породить сколько угодно потоков.
+        if is_rate_limited(
+            'comment_create_form', str(request.user.pk),
+            COMMENT_CREATE_RATE_LIMIT, COMMENT_CREATE_RATE_LIMIT_WINDOW_SECONDS,
+        ):
+            messages.error(request, 'Слишком много комментариев. Попробуйте позже.')
+            return redirect('articles:detail', slug=article.slug)
+
         comment_form = CommentForm(request.POST)
         if _save_relation(request, article, comment_form):
             messages.success(request, 'Комментарий добавлен.')

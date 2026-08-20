@@ -7,7 +7,12 @@ from rest_framework.test import APIClient
 
 from articles.models import Article, Comment, Rating
 from articles.signals import _notify_in_background
-from common.constants import ARTICLE_LIST_PAGE_SIZE, ARTICLE_PENDING_FORM_SESSION_KEY, FORM_SESSION_WRITE_RATE_LIMIT
+from common.constants import (
+    ARTICLE_LIST_PAGE_SIZE,
+    ARTICLE_PENDING_FORM_SESSION_KEY,
+    COMMENT_CREATE_RATE_LIMIT,
+    FORM_SESSION_WRITE_RATE_LIMIT,
+)
 from users.models import User
 
 TYPED_COMMENT_TEXT = 'мой комментарий'
@@ -211,3 +216,44 @@ class NotifyInBackgroundTests(TestCase):
         _notify_in_background(deleted_pk)
 
         mock_notify.assert_not_called()
+
+    @patch('articles.signals.notify_admin_of_new_comment')
+    def test_db_connection_is_closed_after_background_work(self, mock_notify):
+        with patch('articles.signals.connection') as mock_connection:
+            _notify_in_background(self.comment.pk)
+
+        mock_connection.close.assert_called_once()
+
+    @patch('articles.signals.notify_admin_of_new_comment', side_effect=RuntimeError('boom'))
+    def test_db_connection_is_closed_even_if_notification_raises(self, mock_notify):
+        with patch('articles.signals.connection') as mock_connection:
+            with self.assertRaises(RuntimeError):
+                _notify_in_background(self.comment.pk)
+
+        mock_connection.close.assert_called_once()
+
+
+class CommentCreateFormThrottleTests(TestCase):
+    """
+    Тот же лимит, что и в API (CommentCreateThrottleTests в api/tests.py), но для
+    сайтовой формы, куда DRF ScopedRateThrottle не дотягивается вовсе.
+    """
+
+    def setUp(self):
+        cache.clear()
+        self.author = _create_user('form_throttle_author')
+        self.article = _create_article(self.author, slug='form-throttle-article')
+        self.user = _create_user('form_throttle_commenter')
+        self.client = Client()
+        self.client.force_login(self.user)
+
+    def test_comment_creation_is_throttled(self):
+        url = f'/articles/{self.article.slug}/'
+        for _ in range(COMMENT_CREATE_RATE_LIMIT):
+            self.client.post(url, {'submit_comment': '1', 'text': 'hi'})
+
+        self.assertEqual(Comment.objects.filter(article=self.article).count(), COMMENT_CREATE_RATE_LIMIT)
+
+        self.client.post(url, {'submit_comment': '1', 'text': 'one too many'})
+
+        self.assertEqual(Comment.objects.filter(article=self.article).count(), COMMENT_CREATE_RATE_LIMIT)

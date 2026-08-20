@@ -1,8 +1,10 @@
+from django.core.cache import cache
 from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APIClient
 
 from articles.models import Article, Comment
+from common.constants import COMMENT_CREATE_RATE_LIMIT
 from pages.models import ServicePrice
 from users.models import User
 
@@ -98,3 +100,35 @@ class IsOwnerOrAdminOrReadOnlyTests(TestCase):
 
         self.assertEqual(list_resp.status_code, status.HTTP_200_OK)
         self.assertIn(create_resp.status_code, (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN))
+
+
+class CommentCreateThrottleTests(TestCase):
+    """
+    Каждый комментарий поднимает фоновый поток с SMTP+Telegram (articles/signals.py) —
+    без лимита залогиненный пользователь мог бы в цикле породить сколько угодно потоков.
+    ScopedRateThrottle хранит счётчик в django.core.cache, который не откатывается вместе
+    с транзакцией TestCase — без явной очистки тесты начинают друг другу мешать.
+    """
+
+    def setUp(self):
+        cache.clear()
+        self.author = _create_user('throttle_article_author')
+        self.article = Article.objects.create(
+            title='Test', slug='throttle-test-article', content='content', author=self.author,
+        )
+        self.user = _create_user('throttle_commenter')
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+
+    def _comments_list_url(self):
+        return f'/api/v1/articles/{self.article.slug}/comments/'
+
+    def test_comment_creation_is_throttled(self):
+        for _ in range(COMMENT_CREATE_RATE_LIMIT):
+            resp = self.client.post(self._comments_list_url(), {'text': 'hi'}, format='json')
+            self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+
+        over_limit_resp = self.client.post(self._comments_list_url(), {'text': 'one too many'}, format='json')
+
+        self.assertEqual(over_limit_resp.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(Comment.objects.filter(article=self.article).count(), COMMENT_CREATE_RATE_LIMIT)

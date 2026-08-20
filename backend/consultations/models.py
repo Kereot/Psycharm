@@ -2,14 +2,12 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.db import models
-from django.db.models import Q
 
 from common.constants import (
     CONSULTATION_CHOICE_FIELD_MAX_LENGTH,
     CONSULTATION_CONTACT_VALUE_MAX_LENGTH,
     CONSULTATION_NAME_MAX_LENGTH,
     CONSULTATION_STATUS_CHOICES,
-    CONSULTATION_STATUS_CLOSED,
     CONSULTATION_STATUS_NEW,
     CONTACT_METHOD_CHOICES,
     CONTACT_METHOD_EMAIL,
@@ -55,17 +53,11 @@ class Consultation(models.Model):
     )
     created_at = models.DateTimeField('Дата создания', auto_now_add=True)
     updated_at = models.DateTimeField('Дата обновления', auto_now=True)
-    notification_failed = models.BooleanField('Проблема с уведомлением', default=False)
+    # Пока фоновый поток не подтвердил успех явным сбросом в False, заявка считается непроверенной.
+    notification_failed = models.BooleanField('Проблема с уведомлением', default=True)
 
     class Meta:
         ordering = ('-created_at',)
-        constraints = (
-            models.UniqueConstraint(
-                fields=('contact_method', 'contact_value'),
-                condition=~Q(status=CONSULTATION_STATUS_CLOSED),
-                name='unique_open_consultation_per_contact',
-            ),
-        )
         verbose_name = 'Заявка на консультацию'
         verbose_name_plural = 'Заявки на консультацию'
 

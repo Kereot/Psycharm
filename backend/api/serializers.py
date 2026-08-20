@@ -68,8 +68,6 @@ class ConsultationCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Consultation
         fields = ('name', 'contact_method', 'contact_value', 'message', 'website')
-        # Без этого DRF сам достроит UniqueTogetherValidator из UniqueConstraint модели.
-        validators = ()
 
     def validate(self, attrs):
         # Honeypot: обычный пользователь это поле не видит и не заполняет, непустое значение предполагает бота.

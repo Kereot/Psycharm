@@ -1,23 +1,11 @@
 import time
 
-from common.constants import (
-    CONSULTATION_SESSION_CLAIM_KEY,
-    CONSULTATION_SESSION_CLAIM_TTL_SECONDS,
-    FORM_SESSION_WRITE_RATE_LIMIT,
-    FORM_SESSION_WRITE_RATE_LIMIT_WINDOW_SECONDS,
-)
-from common.rate_limit import is_rate_limited
+from common.constants import CONSULTATION_SESSION_CLAIM_KEY, CONSULTATION_SESSION_CLAIM_TTL_SECONDS
 from consultations.models import Consultation
 
 
 def remember_anonymous_consultation(request, consultation):
-    """Запоминает в сессии браузера (id, время) только что созданной анонимной заявки с ограничением по частоте."""
-    ip = request.META.get('REMOTE_ADDR', '')
-    if is_rate_limited(
-        'consultation_session_claim', ip, FORM_SESSION_WRITE_RATE_LIMIT, FORM_SESSION_WRITE_RATE_LIMIT_WINDOW_SECONDS,
-    ):
-        return
-
+    """Запоминает в сессии браузера (id, время) только что созданной анонимной заявки."""
     entries = request.session.get(CONSULTATION_SESSION_CLAIM_KEY, [])
     entries.append([consultation.pk, time.time()])
     request.session[CONSULTATION_SESSION_CLAIM_KEY] = entries

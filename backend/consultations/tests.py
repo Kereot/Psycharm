@@ -8,10 +8,9 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from common.constants import (
+    CONSULTATION_CREATE_RATE_LIMIT,
     CONSULTATION_SESSION_CLAIM_KEY,
     CONSULTATION_SESSION_CLAIM_TTL_SECONDS,
-    CONSULTATION_STATUS_CLOSED,
-    FORM_SESSION_WRITE_RATE_LIMIT,
 )
 from consultations.models import Consultation
 from consultations.signals import _notify_and_mark_on_failure
@@ -70,74 +69,100 @@ def _create_user(username, **overrides):
     return User.objects.create_user(username=username, **defaults)
 
 
-class ConsultationDuplicateOracleTests(ThrottleCacheClearingTestCase):
+class ConsultationSquattingFixTests(ThrottleCacheClearingTestCase):
     """
-    Дубликат заявки по одному и тому же контакту не должен отличаться в ответе
-    от первой заявки — иначе аноним может проверять по телефону/email, есть ли
-    открытая заявка у произвольного человека.
+    Раньше UniqueConstraint на (contact_method, contact_value) + "тихое слияние"
+    дублей позволяли застолбить чужой контакт мусорной заявкой: настоящая заявка
+    с тем же контактом молча проваливалась (аноним получал страницу успеха, но
+    в базе оставалась только заявка атакующего). Теперь каждая отправка — всегда
+    отдельная строка, ничего не может быть тихо отброшено.
     """
 
-    def test_api_duplicate_is_silent_and_not_double_created(self):
+    def test_api_second_submission_with_same_contact_is_saved_separately(self):
         client = APIClient()
-        first = client.post(CONSULTATION_API_URL, _api_payload(), format='json')
-        second = client.post(CONSULTATION_API_URL, _api_payload(message='Другое сообщение'), format='json')
+        first = client.post(CONSULTATION_API_URL, _api_payload(name='Атакующий', message='мусор'), format='json')
+        second = client.post(
+            CONSULTATION_API_URL, _api_payload(name='Мария', message='Срочно нужна помощь'), format='json',
+        )
 
         self.assertEqual(first.status_code, status.HTTP_201_CREATED)
         self.assertEqual(second.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(Consultation.objects.filter(contact_value=DEFAULT_CONTACT_VALUE).count(), 1)
+        saved = list(Consultation.objects.filter(contact_value=DEFAULT_CONTACT_VALUE).values_list('name', 'message'))
+        self.assertEqual(len(saved), 2)
+        self.assertIn(('Мария', 'Срочно нужна помощь'), saved)
 
-    def test_api_duplicate_response_does_not_leak_the_existing_record(self):
-        # Настоящая жертва — уже существующая заявка с чужими данными.
-        victim = Consultation.objects.create(
-            name='Реальное Имя Жертвы', contact_method='phone', contact_value=DEFAULT_CONTACT_VALUE,
-            message='Секретное обращение к психотерапевту',
-        )
-        client = APIClient()
+    def test_form_second_submission_with_same_contact_is_saved_separately(self):
+        attacker_client = Client()
+        maria_client = Client()
 
-        resp = client.post(
-            CONSULTATION_API_URL,
-            _api_payload(name='Атакующий', message='проверка контакта'),
-            format='json',
+        attacker_client.post(CONSULTATION_FORM_URL, _form_payload(name='Атакующий', message='мусор'))
+        maria_resp = maria_client.post(
+            CONSULTATION_FORM_URL, _form_payload(name='Мария', message='Срочно нужна помощь'),
         )
 
-        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
-        # Ответ не должен содержать ни служебных полей, ни (тем более) данных чужой записи.
-        for leaking_field in ('id', 'user', 'status', 'notification_failed', 'created_at'):
-            self.assertNotIn(leaking_field, resp.data)
-        self.assertNotIn(victim.name, str(resp.data))
-        self.assertNotIn(victim.message, str(resp.data))
-        # Ответ отражает то, что прислал сам вызывающий, а не жертву.
-        self.assertEqual(resp.data['name'], 'Атакующий')
-        self.assertEqual(resp.data['message'], 'проверка контакта')
+        self.assertRedirects(maria_resp, CONSULTATION_SUCCESS_URL)
+        saved = list(Consultation.objects.filter(contact_value=DEFAULT_CONTACT_VALUE).values_list('name', 'message'))
+        self.assertEqual(len(saved), 2)
+        self.assertIn(('Мария', 'Срочно нужна помощь'), saved)
 
-    def test_api_genuine_and_duplicate_create_responses_have_identical_shape(self):
-        # Иначе по одному только набору ключей в ответе можно узнать, был дубль или нет.
-        client = APIClient()
-        genuine = client.post(CONSULTATION_API_URL, _api_payload(), format='json')
-        duplicate = client.post(CONSULTATION_API_URL, _api_payload(message='Другое'), format='json')
-
-        self.assertEqual(set(genuine.data.keys()), set(duplicate.data.keys()))
-
-    def test_form_duplicate_is_silent_and_not_double_created(self):
-        client = Client()
-        first = client.post(CONSULTATION_FORM_URL, _form_payload())
-        second = client.post(CONSULTATION_FORM_URL, _form_payload(message='Другое сообщение'))
-
-        self.assertRedirects(second, CONSULTATION_SUCCESS_URL)
-        self.assertEqual(first.status_code, status.HTTP_302_FOUND)
-        self.assertEqual(Consultation.objects.filter(contact_value=DEFAULT_CONTACT_VALUE).count(), 1)
-
-    def test_closed_consultation_does_not_block_new_one(self):
-        Consultation.objects.create(
-            name='Иван', contact_method='phone', contact_value=DEFAULT_CONTACT_VALUE,
-            message='Старая заявка', status=CONSULTATION_STATUS_CLOSED,
-        )
+    def test_create_response_never_includes_read_only_fields(self):
+        # Не связано напрямую со сквоттингом, но сериализатор для create по-прежнему
+        # отдаёт только то, что прислал сам вызывающий — ни id, ни служебные поля.
         client = APIClient()
         resp = client.post(CONSULTATION_API_URL, _api_payload(), format='json')
 
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(Consultation.objects.filter(contact_value=DEFAULT_CONTACT_VALUE).count(), 2)
+        for read_only_field in ('id', 'user', 'status', 'notification_failed', 'created_at'):
+            self.assertNotIn(read_only_field, resp.data)
 
+
+class ConsultationCreateRateLimitTests(ThrottleCacheClearingTestCase):
+    """
+    Без UniqueConstraint единственная защита от флуда — лимит на создание,
+    привязанный к отправителю (IP/пользователю), а не к содержимому заявки.
+    """
+
+    def test_form_creation_is_throttled_per_sender_not_per_contact(self):
+        client = Client()
+        for i in range(CONSULTATION_CREATE_RATE_LIMIT):
+            resp = client.post(CONSULTATION_FORM_URL, _form_payload(contact_value=f'+7999000000{i}'))
+            self.assertRedirects(resp, CONSULTATION_SUCCESS_URL)
+
+        over_limit_value = '+79990000099'
+        client.post(CONSULTATION_FORM_URL, _form_payload(contact_value=over_limit_value))
+
+        self.assertEqual(Consultation.objects.count(), CONSULTATION_CREATE_RATE_LIMIT)
+        # Совершенно новый, ранее не встречавшийся контакт всё равно не спасает —
+        # лимит именно на отправителя, не на contact_value.
+        self.assertFalse(Consultation.objects.filter(contact_value=over_limit_value).exists())
+
+    def test_api_creation_is_throttled_per_sender(self):
+        client = APIClient()
+        for i in range(CONSULTATION_CREATE_RATE_LIMIT):
+            resp = client.post(CONSULTATION_API_URL, _api_payload(contact_value=f'+7999111000{i}'), format='json')
+            self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+
+        over_limit_resp = client.post(
+            CONSULTATION_API_URL, _api_payload(contact_value='+79991110099'), format='json',
+        )
+
+        self.assertEqual(over_limit_resp.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    def test_different_senders_are_not_limited_by_each_others_activity(self):
+        # То самое отличие от лимита "по контакту": разные отправители с ОДНИМ и тем же
+        # contact_value друг другу не мешают. Client() по умолчанию не меняет IP между
+        # экземплярами, поэтому REMOTE_ADDR задаётся явно — иначе это был бы тот же
+        # отправитель и тест совпадал бы с проверкой лимита выше, а не с её отсутствием
+        # между разными отправителями.
+        sender_count = CONSULTATION_CREATE_RATE_LIMIT + 3
+        for i in range(sender_count):
+            resp = Client().post(CONSULTATION_FORM_URL, _form_payload(), REMOTE_ADDR=f'10.0.0.{i}')
+            self.assertRedirects(resp, CONSULTATION_SUCCESS_URL)
+
+        self.assertEqual(Consultation.objects.filter(contact_value=DEFAULT_CONTACT_VALUE).count(), sender_count)
+
+
+class ConsultationOwnOpenConsultationMessageTests(ThrottleCacheClearingTestCase):
     def test_authenticated_user_gets_informed_about_own_open_consultation(self):
         user = User.objects.create_user(username='client1', email='client1@example.com', password='pass12345')
         Consultation.objects.create(
@@ -219,15 +244,20 @@ class NotifyAndMarkOnFailureTests(TestCase):
             name='Иван', contact_method='phone', contact_value='+79991234567', message='msg',
         )
 
+    def test_flag_defaults_to_true_right_after_creation(self):
+        # До того, как фоновый поток вообще успел стартовать (не то что завершиться),
+        # заявка уже считается непровеленной — а не "ждём и притворяемся, что всё ок".
+        self.assertTrue(self.consultation.notification_failed)
+
     @patch('consultations.signals.notify_admin_of_new_consultation', return_value=(True, False))
-    def test_flag_stays_false_when_at_least_one_channel_succeeds(self, mock_notify):
+    def test_flag_reset_to_false_when_at_least_one_channel_succeeds(self, mock_notify):
         _notify_and_mark_on_failure(self.consultation.pk)
 
         self.consultation.refresh_from_db()
         self.assertFalse(self.consultation.notification_failed)
 
     @patch('consultations.signals.notify_admin_of_new_consultation', return_value=(False, False))
-    def test_flag_set_true_when_both_channels_fail(self, mock_notify):
+    def test_flag_stays_true_when_both_channels_fail(self, mock_notify):
         _notify_and_mark_on_failure(self.consultation.pk)
 
         self.consultation.refresh_from_db()
@@ -241,6 +271,21 @@ class NotifyAndMarkOnFailureTests(TestCase):
         _notify_and_mark_on_failure(deleted_pk)
 
         mock_notify.assert_not_called()
+
+    @patch('consultations.signals.notify_admin_of_new_consultation', return_value=(True, False))
+    def test_db_connection_is_closed_after_background_work(self, mock_notify):
+        with patch('consultations.signals.connection') as mock_connection:
+            _notify_and_mark_on_failure(self.consultation.pk)
+
+        mock_connection.close.assert_called_once()
+
+    @patch('consultations.signals.notify_admin_of_new_consultation', side_effect=RuntimeError('boom'))
+    def test_db_connection_is_closed_even_if_notification_raises(self, mock_notify):
+        with patch('consultations.signals.connection') as mock_connection:
+            with self.assertRaises(RuntimeError):
+                _notify_and_mark_on_failure(self.consultation.pk)
+
+        mock_connection.close.assert_called_once()
 
 
 class ConsultationViewSetPermissionTests(TestCase):
@@ -399,22 +444,26 @@ class SessionBasedConsultationClaimingTests(ThrottleCacheClearingTestCase):
         consultation.refresh_from_db()
         self.assertEqual(consultation.user_id, existing_user.pk)
 
-    def test_duplicate_submission_is_not_remembered_and_not_claimable(self):
+    def test_attacker_registering_does_not_claim_victims_consultation_despite_same_contact(self):
         # "Жертва" — реальный автор заявки.
         victim_client = Client()
         victim_client.post(CONSULTATION_FORM_URL, _form_payload())
-        victim_consultation = Consultation.objects.get(contact_value=DEFAULT_CONTACT_VALUE)
+        victim_consultation = Consultation.objects.get(contact_value=DEFAULT_CONTACT_VALUE, name='Иван')
 
-        # "Атакующий" знает контакт жертвы и шлёт заявку с тем же телефоном — это дубль,
-        # свою заявку атакующий не создаёт, значит и запоминать в его сессии нечего.
+        # "Атакующий" знает контакт жертвы и шлёт свою заявку с тем же телефоном — она
+        # сохраняется отдельной строкой (см. ConsultationSquattingFixTests) и запоминается
+        # только в СВОЕЙ сессии, поэтому регистрация атакующего привязывает только её.
         attacker_client = Client()
-        attacker_client.post(CONSULTATION_FORM_URL, _form_payload(message='другое сообщение'))
+        attacker_client.post(CONSULTATION_FORM_URL, _form_payload(name='Атакующий', message='другое сообщение'))
         attacker_client.post(REGISTER_URL, _registration_payload(
             username='attacker', email='attacker@example.com',
         ))
 
         victim_consultation.refresh_from_db()
         self.assertIsNone(victim_consultation.user_id)
+
+        attacker_consultation = Consultation.objects.get(contact_value=DEFAULT_CONTACT_VALUE, name='Атакующий')
+        self.assertEqual(attacker_consultation.user.username, 'attacker')
 
     def test_different_session_registration_does_not_claim(self):
         Client().post(CONSULTATION_FORM_URL, _form_payload())
@@ -487,20 +536,19 @@ class SessionBasedConsultationClaimingTests(ThrottleCacheClearingTestCase):
         consultation.refresh_from_db()
         self.assertEqual(consultation.user.username, 'claimtestuser')
 
-    def test_remember_is_rate_limited_per_ip(self):
+    def test_all_consultations_within_sender_limit_are_remembered_and_claimable(self):
+        # remember_anonymous_consultation больше не лимитирует сама по себе — создание
+        # уже ограничено по отправителю (CONSULTATION_CREATE_RATE_LIMIT), так что вызвать
+        # её больше этого числа раз за отведённое окно физически нельзя.
         client = Client()
         consultation_ids = []
-        for i in range(FORM_SESSION_WRITE_RATE_LIMIT + 1):
+        for i in range(CONSULTATION_CREATE_RATE_LIMIT):
             client.post(CONSULTATION_FORM_URL, _form_payload(contact_value=f'+799900000{i}'))
             consultation_ids.append(Consultation.objects.get(contact_value=f'+799900000{i}').pk)
 
-        # Все заявки реально создались...
-        self.assertEqual(Consultation.objects.filter(pk__in=consultation_ids).count(), FORM_SESSION_WRITE_RATE_LIMIT + 1)
-
         client.post(REGISTER_URL, _registration_payload())
 
-        # ...но запомнить (а значит и связать) удалось не больше лимита.
         linked_count = Consultation.objects.filter(pk__in=consultation_ids, user__isnull=False).count()
-        self.assertEqual(linked_count, FORM_SESSION_WRITE_RATE_LIMIT)
+        self.assertEqual(linked_count, CONSULTATION_CREATE_RATE_LIMIT)
 
 
