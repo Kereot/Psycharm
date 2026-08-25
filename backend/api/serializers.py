@@ -61,6 +61,14 @@ class RatingSerializer(serializers.ModelSerializer):
         read_only_fields = ('id', 'author', 'created_at')
 
 
+def _validate_contact(contact_method, contact_value):
+    instance = Consultation(contact_method=contact_method, contact_value=contact_value)
+    try:
+        instance.clean()
+    except DjangoValidationError as error:
+        raise serializers.ValidationError(error.message_dict)
+
+
 class ConsultationCreateSerializer(serializers.ModelSerializer):
 
     website = serializers.CharField(required=False, allow_blank=True, write_only=True)
@@ -74,11 +82,20 @@ class ConsultationCreateSerializer(serializers.ModelSerializer):
         if attrs.pop(HONEYPOT_FIELD_NAME, ''):
             raise serializers.ValidationError({HONEYPOT_FIELD_NAME: HONEYPOT_ERROR_MESSAGE})
 
-        instance = Consultation(contact_method=attrs['contact_method'], contact_value=attrs['contact_value'])
-        try:
-            instance.clean()
-        except DjangoValidationError as error:
-            raise serializers.ValidationError(error.message_dict)
+        _validate_contact(attrs['contact_method'], attrs['contact_value'])
+        return attrs
+
+
+class ConsultationOwnerUpdateSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = Consultation
+        fields = ('contact_method', 'contact_value', 'message')
+
+    def validate(self, attrs):
+        contact_method = attrs.get('contact_method', self.instance.contact_method)
+        contact_value = attrs.get('contact_value', self.instance.contact_value)
+        _validate_contact(contact_method, contact_value)
         return attrs
 
 

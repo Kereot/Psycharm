@@ -8,26 +8,34 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import Throttled
 from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 
-from api.permissions import IsAdminOrReadOnly, IsOwnerOrAdminOrReadOnly
+from api.permissions import IsAdminOrOwnerOfOpenConsultation, IsAdminOrReadOnly, IsOwnerOrAdminOrReadOnly
 from api.serializers import (
     ArticleSerializer,
     AvatarSerializer,
     CommentSerializer,
     ConsultationCreateSerializer,
+    ConsultationOwnerUpdateSerializer,
     ConsultationSerializer,
     ConsultationStatusUpdateSerializer,
     RatingSerializer,
     ServicePriceSerializer,
 )
 from articles.models import Article, Comment, Rating
-from common.constants import COMMENT_CREATE_THROTTLE_SCOPE, CONSULTATION_CREATE_THROTTLE_SCOPE
+from common.constants import (
+    COMMENT_CREATE_THROTTLE_SCOPE,
+    CONSULTATION_CREATE_UPDATE_RATE_LIMIT,
+    CONSULTATION_CREATE_UPDATE_RATE_LIMIT_WINDOW_SECONDS,
+)
 from common.exceptions import DuplicateRatingError
+from common.rate_limit import is_rate_limited
 from consultations.models import Consultation
 from consultations.services import claim_session_consultations, remember_anonymous_consultation
+from consultations.signals import dispatch_consultation_update_notification
 from pages.models import ServicePrice
 
 logger = logging.getLogger(__name__)
@@ -148,44 +156,68 @@ class ConsultationViewSet(
 ):
     queryset = Consultation.objects.select_related('user')
     serializer_class = ConsultationSerializer
-    throttle_scope = CONSULTATION_CREATE_THROTTLE_SCOPE
 
     def get_serializer_class(self):
         if self.action == 'create':
             return ConsultationCreateSerializer
         if self.action in ('update', 'partial_update'):
-            return ConsultationStatusUpdateSerializer
+            if self.request.user.is_staff:
+                return ConsultationStatusUpdateSerializer
+            return ConsultationOwnerUpdateSerializer
         return ConsultationSerializer
-
-    def get_throttles(self):
-        # Ограничение частоты для создания заявок.
-        if self.action == 'create':
-            return (ScopedRateThrottle(),)
-        return ()
 
     def get_permissions(self):
         if self.action == 'create':
             return (AllowAny(),)
         if self.action == 'my':
             return (IsAuthenticated(),)
+        if self.action in ('update', 'partial_update'):
+            return (IsAdminOrOwnerOfOpenConsultation(),)
         return (IsAdminUser(),)
 
     def perform_create(self, serializer):
         user = self.request.user if self.request.user.is_authenticated else None
+        # Лимит — только на реально валидные отправки; опечатки не тратят квоту впустую.
+        sender_id = str(user.pk) if user is not None else self.request.META.get('REMOTE_ADDR', '')
+        if is_rate_limited(
+            'consultation_create', sender_id,
+            CONSULTATION_CREATE_UPDATE_RATE_LIMIT, CONSULTATION_CREATE_UPDATE_RATE_LIMIT_WINDOW_SECONDS,
+        ):
+            raise Throttled(detail='Слишком много заявок. Попробуйте позже.')
+
         serializer.save(user=user)
 
         if user is None:
             remember_anonymous_consultation(self.request, serializer.instance)
 
     def perform_update(self, serializer):
-        old_status = serializer.instance.status
-        serializer.save()
+        if not self.request.user.is_staff:
+            if is_rate_limited(
+                'consultation_edit', str(self.request.user.pk),
+                CONSULTATION_CREATE_UPDATE_RATE_LIMIT, CONSULTATION_CREATE_UPDATE_RATE_LIMIT_WINDOW_SECONDS,
+            ):
+                raise Throttled(detail='Слишком много изменений. Попробуйте позже.')
 
-        if serializer.instance.status != old_status:
+        old_status = serializer.instance.status
+        old_contact_method = serializer.instance.contact_method
+        old_contact_value = serializer.instance.contact_value
+        old_message = serializer.instance.message
+
+        consultation = serializer.save()
+
+        if consultation.status != old_status:
             logger.info(
                 'Заявка id=%s: статус изменён %s -> %s (пользователь id=%s)',
-                serializer.instance.pk, old_status, serializer.instance.status, self.request.user.pk,
+                consultation.pk, old_status, consultation.status, self.request.user.pk,
             )
+
+        contact_or_message_changed = (
+            consultation.contact_method != old_contact_method
+            or consultation.contact_value != old_contact_value
+            or consultation.message != old_message
+        )
+        if contact_or_message_changed:
+            dispatch_consultation_update_notification(consultation, old_contact_method, old_contact_value, old_message)
 
     @action(detail=False, methods=('get',), url_path='my')
     def my(self, request):

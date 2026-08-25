@@ -1,7 +1,11 @@
 import shutil
 import tempfile
 
+from django.contrib.auth.tokens import default_token_generator
+from django.core import mail
 from django.test import Client, TestCase, override_settings
+from django.utils.encoding import force_bytes
+from django.utils.http import urlsafe_base64_encode
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -11,6 +15,9 @@ REGISTER_URL = '/accounts/register/'
 LOGIN_URL = '/accounts/login/'
 PROFILE_URL = '/accounts/profile/'
 AVATAR_API_URL = '/api/v1/users/me/avatar/'
+PASSWORD_RESET_URL = '/accounts/password_reset/'
+PASSWORD_RESET_DONE_URL = '/accounts/password_reset/done/'
+PASSWORD_RESET_COMPLETE_URL = '/accounts/reset/done/'
 
 VALID_PASSWORD = 'Str0ngP@ssw0rd2026'
 # 1x1 прозрачный PNG.
@@ -174,3 +181,80 @@ class AvatarApiTests(TestCase):
         resp = anon_client.put(AVATAR_API_URL, {'avatar': BASE64_PNG}, format='json')
 
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+@override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+class PasswordResetTests(TestCase):
+    """
+    EMAIL_BACKEND в .env указывает на реальный SMTP — PasswordResetView шлёт письмо
+    синхронно, в отличие от уведомлений о заявках/комментариях (те идут фоновым
+    потоком через on_commit, который в TestCase не срабатывает вообще). Без явного
+    переопределения на locmem каждый прогон тестов слал бы настоящее письмо.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='reset_user', email='reset_user@example.com', password=VALID_PASSWORD,
+            first_name='А', last_name='Б',
+        )
+
+    def test_form_renders(self):
+        resp = Client().get(PASSWORD_RESET_URL)
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+    def test_login_page_links_to_password_reset(self):
+        resp = Client().get(LOGIN_URL)
+
+        self.assertContains(resp, PASSWORD_RESET_URL)
+
+    def test_known_email_sends_reset_link(self):
+        resp = Client().post(PASSWORD_RESET_URL, {'email': self.user.email})
+
+        self.assertRedirects(resp, PASSWORD_RESET_DONE_URL)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn(self.user.username, mail.outbox[0].body)
+        self.assertIn('/accounts/reset/', mail.outbox[0].body)
+
+    def test_unknown_email_gives_identical_response_without_sending_mail(self):
+        # Не выдаёт, зарегистрирован ли email, — тот же редирект, что и для существующего.
+        known_resp = Client().post(PASSWORD_RESET_URL, {'email': self.user.email})
+        mail.outbox.clear()
+        unknown_resp = Client().post(PASSWORD_RESET_URL, {'email': 'nobody@example.com'})
+
+        self.assertEqual(known_resp.status_code, unknown_resp.status_code)
+        self.assertEqual(known_resp.url, unknown_resp.url)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_full_reset_flow_changes_password(self):
+        client = Client()
+        client.post(PASSWORD_RESET_URL, {'email': self.user.email})
+
+        uid = urlsafe_base64_encode(force_bytes(self.user.pk))
+        token = default_token_generator.make_token(self.user)
+
+        # Первый GET по ссылке из письма подменяет токен в URL на 'set-password' и
+        # кладёт настоящий токен в сессию (защита от утечки токена через Referer) —
+        # без этого шага POST с новым паролем не пройдёт.
+        redirect_resp = client.get(f'/accounts/reset/{uid}/{token}/')
+        self.assertEqual(redirect_resp.status_code, status.HTTP_302_FOUND)
+
+        form_resp = client.get(redirect_resp.url)
+        self.assertEqual(form_resp.status_code, status.HTTP_200_OK)
+
+        post_resp = client.post(redirect_resp.url, {
+            'new_password1': 'AnotherStr0ngPass!', 'new_password2': 'AnotherStr0ngPass!',
+        })
+
+        self.assertRedirects(post_resp, PASSWORD_RESET_COMPLETE_URL)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password('AnotherStr0ngPass!'))
+
+    def test_invalid_token_is_rejected(self):
+        uid = urlsafe_base64_encode(force_bytes(self.user.pk))
+        client = Client()
+
+        resp = client.get(f'/accounts/reset/{uid}/invalid-token/', follow=True)
+
+        self.assertContains(resp, 'недействительна')
+        self.assertTrue(self.user.check_password(VALID_PASSWORD))

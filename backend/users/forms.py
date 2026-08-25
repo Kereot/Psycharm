@@ -1,5 +1,7 @@
 from django import forms
-from django.contrib.auth.forms import AuthenticationForm, UserCreationForm
+from django.contrib.auth.forms import AuthenticationForm, PasswordResetForm as BasePasswordResetForm
+from django.contrib.auth.forms import SetPasswordForm as BaseSetPasswordForm
+from django.contrib.auth.forms import UserCreationForm
 from django.urls import reverse
 from django.utils.html import format_html
 
@@ -36,6 +38,14 @@ class RegistrationForm(BootstrapFormMixin, UserCreationForm):
 
 
 class LoginForm(BootstrapFormMixin, AuthenticationForm):
+    pass
+
+
+class PasswordResetForm(BootstrapFormMixin, BasePasswordResetForm):
+    pass
+
+
+class SetPasswordForm(BootstrapFormMixin, BaseSetPasswordForm):
     pass
 
 

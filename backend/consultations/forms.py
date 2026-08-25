@@ -15,7 +15,27 @@ HONEYPOT_WIDGET_ATTRS = {
 }
 
 
-class ConsultationForm(forms.ModelForm):
+class BaseConsultationForm(forms.ModelForm):
+
+    class Meta:
+        labels = {
+            'contact_method': 'Способ связи',
+            'contact_value': 'Контакт',
+            'message': 'Сообщение',
+        }
+        help_texts = {
+            'contact_value': (
+                'Телефон/WhatsApp: +79991234567 · Telegram: @username · Email: name@example.com'
+            ),
+        }
+        widgets = {
+            'contact_method': forms.Select(attrs={'class': 'form-select'}),
+            'contact_value': forms.TextInput(attrs={'class': 'form-control'}),
+            'message': forms.Textarea(attrs={'class': 'form-control', 'rows': CONSULTATION_FORM_ROWS}),
+        }
+
+
+class ConsultationForm(BaseConsultationForm):
     website = forms.CharField(
         required=False,
         label='',
@@ -27,26 +47,11 @@ class ConsultationForm(forms.ModelForm):
         widget=forms.CheckboxInput(attrs={'class': 'form-check-input'}),
     )
 
-    class Meta:
+    class Meta(BaseConsultationForm.Meta):
         model = Consultation
         fields = ('name', 'contact_method', 'contact_value', 'message')
-        labels = {
-            'name': 'Ваше имя',
-            'contact_method': 'Способ связи',
-            'contact_value': 'Контакт',
-            'message': 'Сообщение',
-        }
-        help_texts = {
-            'contact_value': (
-                'Телефон/WhatsApp: +79991234567 · Telegram: @username · Email: name@example.com'
-            ),
-        }
-        widgets = {
-            'name': forms.TextInput(attrs={'class': 'form-control'}),
-            'contact_method': forms.Select(attrs={'class': 'form-select'}),
-            'contact_value': forms.TextInput(attrs={'class': 'form-control'}),
-            'message': forms.Textarea(attrs={'class': 'form-control', 'rows': CONSULTATION_FORM_ROWS}),
-        }
+        labels = {**BaseConsultationForm.Meta.labels, 'name': 'Ваше имя'}
+        widgets = {**BaseConsultationForm.Meta.widgets, 'name': forms.TextInput(attrs={'class': 'form-control'})}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -60,3 +65,11 @@ class ConsultationForm(forms.ModelForm):
         if value:
             raise forms.ValidationError(HONEYPOT_ERROR_MESSAGE)
         return value
+
+
+# Для владельца незакрытой заявки — только контакт и текст, не имя и не статус.
+class ConsultationEditForm(BaseConsultationForm):
+
+    class Meta(BaseConsultationForm.Meta):
+        model = Consultation
+        fields = ('contact_method', 'contact_value', 'message')

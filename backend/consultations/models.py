@@ -8,6 +8,7 @@ from common.constants import (
     CONSULTATION_CONTACT_VALUE_MAX_LENGTH,
     CONSULTATION_NAME_MAX_LENGTH,
     CONSULTATION_STATUS_CHOICES,
+    CONSULTATION_STATUS_CLOSED,
     CONSULTATION_STATUS_NEW,
     CONTACT_METHOD_CHOICES,
     CONTACT_METHOD_EMAIL,
@@ -63,6 +64,10 @@ class Consultation(models.Model):
 
     def __str__(self):
         return f'{self.name} ({self.get_contact_method_display()}) — {self.get_status_display()}'
+
+    @property
+    def is_editable_by_owner(self):
+        return self.status != CONSULTATION_STATUS_CLOSED
 
     def clean(self):
         validator = CONTACT_VALIDATORS.get(self.contact_method)

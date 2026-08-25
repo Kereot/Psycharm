@@ -7,12 +7,14 @@ from dotenv import load_dotenv
 
 from common.constants import (
     API_PAGE_SIZE,
+    CACHE_CULL_FREQUENCY,
+    CACHE_MAX_ENTRIES,
     COMMENT_CREATE_THROTTLE_RATE,
     COMMENT_CREATE_THROTTLE_SCOPE,
-    CONSULTATION_CREATE_THROTTLE_RATE,
-    CONSULTATION_CREATE_THROTTLE_SCOPE,
     DEFAULT_DB_PORT,
     DEFAULT_EMAIL_PORT,
+    DEFAULT_HSTS_SECONDS,
+    DJANGO_CACHE_TABLE,
     EMAIL_TIMEOUT_SECONDS,
     JWT_ACCESS_TOKEN_LIFETIME_MINUTES,
     JWT_REFRESH_TOKEN_LIFETIME_DAYS,
@@ -30,6 +32,11 @@ if not SECRET_KEY:
 DEBUG = os.getenv('DEBUG', 'false').lower() in ('true', '1', 'yes', 'on')
 
 ALLOWED_HOSTS = [h.strip() for h in os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',') if h.strip()]
+
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+SECURE_SSL_REDIRECT = not DEBUG
+SECURE_HSTS_SECONDS = int(os.getenv('SECURE_HSTS_SECONDS', DEFAULT_HSTS_SECONDS)) if not DEBUG else 0
 
 
 INSTALLED_APPS = [
@@ -71,7 +78,6 @@ REST_FRAMEWORK = {
     'PAGE_SIZE': API_PAGE_SIZE,
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'DEFAULT_THROTTLE_RATES': {
-        CONSULTATION_CREATE_THROTTLE_SCOPE: CONSULTATION_CREATE_THROTTLE_RATE,
         COMMENT_CREATE_THROTTLE_SCOPE: COMMENT_CREATE_THROTTLE_RATE,
     },
 }
@@ -158,6 +164,16 @@ elif DB_ENGINE == 'sqlite3':
     }
 else:
     raise ValueError(f'Unknown database engine: {DB_ENGINE}')
+
+
+# Таблицу создаёт `python manage.py createcachetable` (не через migrate).
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
+        'LOCATION': DJANGO_CACHE_TABLE,
+        'OPTIONS': {'MAX_ENTRIES': CACHE_MAX_ENTRIES, 'CULL_FREQUENCY': CACHE_CULL_FREQUENCY}
+    }
+}
 
 
 AUTH_PASSWORD_VALIDATORS = [

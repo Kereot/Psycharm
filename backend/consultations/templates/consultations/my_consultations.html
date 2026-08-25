@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block title %}Мои заявки{% endblock %}
+
+{% block content %}
+<h1 class="mb-4">Мои заявки на консультацию</h1>
+
+{% if consultations %}
+    <div class="table-responsive">
+        <table class="table align-middle">
+            <thead>
+                <tr>
+                    <th>Контакт</th>
+                    <th>Сообщение</th>
+                    <th>Создана</th>
+                    <th>Статус</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for consultation in consultations %}
+                    <tr>
+                        <td>{{ consultation.get_contact_method_display }}: {{ consultation.contact_value }}</td>
+                        <td style="max-width: 300px; white-space: pre-wrap;">{{ consultation.message }}</td>
+                        <td>{{ consultation.created_at }}</td>
+                        <td>{{ consultation.get_status_display }}</td>
+                        <td>
+                            {% if consultation.is_editable_by_owner %}
+                                <a href="{% url 'consultations:my_edit' consultation.pk %}"
+                                   class="btn btn-outline-secondary btn-sm">Изменить</a>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% else %}
+    <p>
+        У вас пока нет заявок.
+        <a href="{% url 'consultations:request' %}">Оставить заявку на консультацию</a>.
+    </p>
+{% endif %}
+{% endblock %}

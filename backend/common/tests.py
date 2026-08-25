@@ -1,9 +1,11 @@
 from unittest.mock import patch
 
 import requests
-from django.test import SimpleTestCase, override_settings
+from django.core.cache import cache
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from common.notifications import send_email_notification, send_telegram_notification
+from common.rate_limit import is_rate_limited
 
 
 @override_settings(ADMIN_NOTIFICATION_EMAIL='admin@example.com', DEFAULT_FROM_EMAIL='noreply@example.com')
@@ -54,3 +56,36 @@ class SendTelegramNotificationTests(SimpleTestCase):
 
         self.assertFalse(result)
         mock_post.assert_not_called()
+
+
+class IsRateLimitedTests(TestCase):
+    def setUp(self):
+        cache.clear()
+
+    def test_first_call_is_not_limited(self):
+        self.assertFalse(is_rate_limited('scope', 'sender', 3, 60))
+
+    def test_calls_under_limit_are_not_limited(self):
+        for _ in range(3):
+            self.assertFalse(is_rate_limited('scope', 'sender', 3, 60))
+
+    def test_call_at_limit_is_limited(self):
+        for _ in range(3):
+            is_rate_limited('scope', 'sender', 3, 60)
+
+        self.assertTrue(is_rate_limited('scope', 'sender', 3, 60))
+
+    @patch('common.rate_limit.cache.set', wraps=cache.set)
+    def test_every_write_uses_the_full_window_not_the_cache_default_timeout(self, mock_set):
+        # cache.incr() наследует BaseCache.incr(), который внутри делает set() БЕЗ
+        # timeout — на бэкендах, не переопределяющих incr() (DatabaseCache и почти
+        # все, кроме LocMemCache), это молча срезает TTL ключа до
+        # CACHES['default']['TIMEOUT'] (300 секунд по умолчанию) вместо window_seconds.
+        # Проверяем, что КАЖДАЯ запись явно проставляет полное окно.
+        window_seconds = 3600
+        for _ in range(3):
+            is_rate_limited('scope', 'sender', 5, window_seconds)
+
+        self.assertTrue(mock_set.call_args_list)
+        for _, kwargs in mock_set.call_args_list:
+            self.assertEqual(kwargs.get('timeout'), window_seconds)
