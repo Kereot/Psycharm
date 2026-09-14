@@ -207,6 +207,4 @@ flake8 .
 
 ## Автор
 
-Это учебный проект **Kereot**
-
 * Github: [@kereot](https://github.com/kereot)
