@@ -5,16 +5,14 @@
 {% block content %}
 <div class="row g-4">
     <div class="col-md-4">
-        {# TODO: это заглушка! #}
-        <div class="bg-secondary bg-opacity-25 d-flex align-items-center justify-content-center rounded"
-             style="aspect-ratio: 3 / 4; min-height: 320px;">
-            <span class="text-muted">Фото (заглушка)</span>
-        </div>
+        {# Демонстрационная иллюстрация - заменить на реальное фото. #}
+        <img src="{{ MEDIA_URL }}pages/home-hero.svg" alt="Спокойствие и осознанность"
+             class="rounded w-100" style="aspect-ratio: 3 / 4; object-fit: cover;">
     </div>
 
     <div class="col-md-4 d-flex flex-column justify-content-center">
         {# TODO: это заглушка!' #}
-        <h1 class="h3">Имя Фамилия</h1>
+        <h1 class="h3">Кот Котовский</h1>
         <p class="text-muted">
             Заглушка описания: образование, специализация и подход к работе психолога.
             Замените этот текст на реальный.

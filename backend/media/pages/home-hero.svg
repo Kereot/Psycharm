@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 400" role="img" aria-label="Спокойный человек в позе медитации на фоне ветки с листьями">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#eef5f1"/>
+      <stop offset="100%" stop-color="#dbe9ef"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="38%" r="55%">
+      <stop offset="0%" stop-color="#f6ead2" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#f6ead2" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="figure" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#5c8b7d"/>
+      <stop offset="100%" stop-color="#3f6b60"/>
+    </linearGradient>
+    <linearGradient id="leaf" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#9bc7a8"/>
+      <stop offset="100%" stop-color="#6fa583"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="300" height="400" fill="url(#bg)"/>
+  <circle cx="150" cy="155" r="140" fill="url(#glow)"/>
+
+  <g opacity="0.55" stroke="#8fb6ae" stroke-width="2" fill="none">
+    <circle cx="48" cy="70" r="5"/>
+    <circle cx="252" cy="96" r="4"/>
+    <circle cx="230" cy="300" r="6"/>
+    <circle cx="40" cy="320" r="4"/>
+  </g>
+
+  <!-- ветка с листьями за спиной -->
+  <g stroke="#6fa583" stroke-width="4" stroke-linecap="round" fill="none" opacity="0.9">
+    <path d="M150 158 C 133 122, 114 96, 118 62"/>
+    <path d="M150 158 C 168 124, 187 100, 182 66"/>
+  </g>
+  <g fill="url(#leaf)">
+    <ellipse cx="112" cy="88" rx="15" ry="8" transform="rotate(-35 112 88)"/>
+    <ellipse cx="127" cy="54" rx="14" ry="8" transform="rotate(-15 127 54)"/>
+    <ellipse cx="150" cy="36" rx="15" ry="8" transform="rotate(5 150 36)"/>
+    <ellipse cx="174" cy="52" rx="14" ry="8" transform="rotate(25 174 52)"/>
+    <ellipse cx="190" cy="86" rx="15" ry="8" transform="rotate(45 190 86)"/>
+  </g>
+
+  <!-- сидящая в медитации фигура: база (скрещенные ноги) -->
+  <ellipse cx="150" cy="296" rx="82" ry="22" fill="url(#figure)"/>
+  <!-- торс (верх скрыт под головой) -->
+  <path d="M122 200 L178 200 L212 272 L88 272 Z" fill="url(#figure)"/>
+  <!-- кисти рук на коленях -->
+  <circle cx="100" cy="280" r="13" fill="url(#figure)"/>
+  <circle cx="200" cy="280" r="13" fill="url(#figure)"/>
+  <!-- голова -->
+  <circle cx="150" cy="185" r="30" fill="url(#figure)"/>
+</svg>
