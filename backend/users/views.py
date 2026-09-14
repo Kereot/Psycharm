@@ -3,7 +3,10 @@ from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.views import LoginView as BaseLoginView
 from django.shortcuts import redirect, render
+from rest_framework.status import HTTP_429_TOO_MANY_REQUESTS
 
+from common.constants import LOGIN_RATE_LIMIT, LOGIN_RATE_LIMIT_WINDOW_SECONDS
+from common.rate_limit import is_rate_limited
 from consultations.services import claim_session_consultations
 from users.forms import LoginForm, ProfileForm, RegistrationForm
 
@@ -30,6 +33,15 @@ def register(request):
 class LoginView(BaseLoginView):
     template_name = 'registration/login.html'
     authentication_form = LoginForm
+
+    def post(self, request, *args, **kwargs):
+        # Здесь лимит именно на попытку (валидную или нет).
+        ip = request.META.get('REMOTE_ADDR', '')
+        if is_rate_limited('login', ip, LOGIN_RATE_LIMIT, LOGIN_RATE_LIMIT_WINDOW_SECONDS):
+            messages.error(request, 'Слишком много попыток входа. Попробуйте позже.')
+            context = self.get_context_data(form=self.get_form())
+            return self.render_to_response(context, status=HTTP_429_TOO_MANY_REQUESTS)
+        return super().post(request, *args, **kwargs)
 
     def form_valid(self, form):
         response = super().form_valid(form)

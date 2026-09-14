@@ -32,11 +32,13 @@ if not SECRET_KEY:
 DEBUG = os.getenv('DEBUG', 'false').lower() in ('true', '1', 'yes', 'on')
 
 ALLOWED_HOSTS = [h.strip() for h in os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',') if h.strip()]
+CSRF_TRUSTED_ORIGINS = [o.strip() for o in os.getenv('CSRF_TRUSTED_ORIGINS', '').split(',') if o.strip()]
 
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
 SECURE_SSL_REDIRECT = not DEBUG
 SECURE_HSTS_SECONDS = int(os.getenv('SECURE_HSTS_SECONDS', DEFAULT_HSTS_SECONDS)) if not DEBUG else 0
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https') if not DEBUG else None
 
 
 INSTALLED_APPS = [
@@ -109,6 +111,7 @@ DJOSER = {
     'SERIALIZERS': {
         'user': 'api.serializers.UserSerializer',
         'current_user': 'api.serializers.UserSerializer',
+        'user_create': 'api.serializers.UserCreateSerializer',
     },
 }
 

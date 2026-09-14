@@ -65,6 +65,7 @@ DJANGO_CACHE_TABLE = 'django_cache'
 
 # Сообщения об ошибках (используются и в DRF-исключениях, и в обычных Django-формах)
 DUPLICATE_RATING_MESSAGE = 'Вы уже оценили эту статью.'
+PRIVACY_CONSENT_ERROR_MESSAGE = 'Необходимо согласие на обработку персональных данных.'
 
 # Антиспам (anti-spam)
 CONSULTATION_CREATE_UPDATE_RATE_LIMIT = 5
@@ -79,6 +80,10 @@ COMMENT_CREATE_THROTTLE_SCOPE = 'comment_create'
 COMMENT_CREATE_THROTTLE_RATE = '20/hour'
 COMMENT_CREATE_RATE_LIMIT = 20
 COMMENT_CREATE_RATE_LIMIT_WINDOW_SECONDS = 3600
+
+# Ограничивает попытки входа по IP, в отличие от лимитов выше, которые не тратятся на невалидные отправки.
+LOGIN_RATE_LIMIT = 10
+LOGIN_RATE_LIMIT_WINDOW_SECONDS = 900
 
 CACHE_MAX_ENTRIES = 10000
 CACHE_CULL_FREQUENCY = 4

@@ -3,15 +3,18 @@ import tempfile
 
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
+from django.core.cache import cache
 from django.test import Client, TestCase, override_settings
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from common.constants import LOGIN_RATE_LIMIT
 from users.models import User
 
 REGISTER_URL = '/accounts/register/'
+API_REGISTER_URL = '/api/v1/users/'
 LOGIN_URL = '/accounts/login/'
 PROFILE_URL = '/accounts/profile/'
 AVATAR_API_URL = '/api/v1/users/me/avatar/'
@@ -35,6 +38,19 @@ def _registration_payload(**overrides):
         'last_name': 'Иванов',
         'password1': VALID_PASSWORD,
         'password2': VALID_PASSWORD,
+        'privacy_consent': True,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _api_registration_payload(**overrides):
+    payload = {
+        'username': 'newuser',
+        'email': 'newuser@example.com',
+        'first_name': 'Иван',
+        'last_name': 'Иванов',
+        'password': VALID_PASSWORD,
         'privacy_consent': True,
     }
     payload.update(overrides)
@@ -78,8 +94,43 @@ class RegistrationTests(TestCase):
         self.assertEqual(User.objects.filter(email='newuser@example.com').count(), 1)
 
 
+class ApiRegistrationTests(TestCase):
+    """
+    Регистрация через Djoser (/api/v1/users/) - отдельный от сайтовой формы
+    путь, у него своя сериализация. Без явной проверки согласие можно было бы
+    обойти в обход RegistrationForm.
+    """
+
+    def test_valid_registration_creates_user(self):
+        client = APIClient()
+        resp = client.post(API_REGISTER_URL, _api_registration_payload(), format='json')
+
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(User.objects.filter(username='newuser').exists())
+        self.assertNotIn('privacy_consent', resp.data)
+
+    def test_missing_consent_is_rejected(self):
+        client = APIClient()
+        payload = _api_registration_payload()
+        del payload['privacy_consent']
+        resp = client.post(API_REGISTER_URL, payload, format='json')
+
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('privacy_consent', resp.data)
+        self.assertFalse(User.objects.filter(username='newuser').exists())
+
+    def test_false_consent_is_rejected(self):
+        client = APIClient()
+        resp = client.post(API_REGISTER_URL, _api_registration_payload(privacy_consent=False), format='json')
+
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('privacy_consent', resp.data)
+        self.assertFalse(User.objects.filter(username='newuser').exists())
+
+
 class LoginTests(TestCase):
     def setUp(self):
+        cache.clear()
         self.user = User.objects.create_user(
             username='logintest', email='logintest@example.com', password=VALID_PASSWORD,
             first_name='А', last_name='Б',
@@ -99,6 +150,39 @@ class LoginTests(TestCase):
 
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.assertFalse(resp.wsgi_request.user.is_authenticated)
+
+
+class LoginThrottleTests(TestCase):
+    """
+    В отличие от лимитов на заявки/комментарии, здесь лимит именно на попытку —
+    и правильные, и неправильные учитываются одинаково: это защита от подбора
+    пароля, а не от опечаток, так что здесь нельзя проверять is_valid() раньше.
+    """
+
+    def setUp(self):
+        cache.clear()
+        self.user = User.objects.create_user(
+            username='logintest', email='logintest@example.com', password=VALID_PASSWORD,
+            first_name='А', last_name='Б',
+        )
+
+    def test_attempts_over_limit_are_throttled(self):
+        client = Client()
+        for _ in range(LOGIN_RATE_LIMIT):
+            resp = client.post(LOGIN_URL, {'username': 'logintest', 'password': 'wrong-password'})
+            self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+        over_limit_resp = client.post(LOGIN_URL, {'username': 'logintest', 'password': VALID_PASSWORD})
+
+        self.assertEqual(over_limit_resp.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertFalse(over_limit_resp.wsgi_request.user.is_authenticated)
+
+    def test_different_senders_are_not_limited_by_each_others_attempts(self):
+        for i in range(LOGIN_RATE_LIMIT + 3):
+            resp = Client().post(
+                LOGIN_URL, {'username': 'logintest', 'password': 'wrong-password'}, REMOTE_ADDR=f'10.0.1.{i}',
+            )
+            self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
 
 class ProfileTests(TestCase):

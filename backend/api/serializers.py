@@ -1,9 +1,10 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
+from djoser.serializers import UserCreateSerializer as BaseUserCreateSerializer
 from djoser.serializers import UserSerializer as BaseUserSerializer
 from rest_framework import serializers
 
 from articles.models import Article, Comment, Rating
-from common.constants import HONEYPOT_ERROR_MESSAGE, HONEYPOT_FIELD_NAME
+from common.constants import HONEYPOT_ERROR_MESSAGE, HONEYPOT_FIELD_NAME, PRIVACY_CONSENT_ERROR_MESSAGE
 from common.fields import NoBlankBase64ImageField
 from consultations.models import Consultation
 from pages.models import ServicePrice
@@ -11,16 +12,31 @@ from users.models import User
 
 
 class UserPublicSerializer(serializers.ModelSerializer):
+
     class Meta:
         model = User
         fields = ('id', 'username', 'first_name', 'last_name', 'avatar')
 
 
 class UserSerializer(BaseUserSerializer):
+
     class Meta(BaseUserSerializer.Meta):
         model = User
         fields = ('id', 'username', 'email', 'first_name', 'last_name', 'avatar')
         read_only_fields = ('username', 'avatar')
+
+
+class UserCreateSerializer(BaseUserCreateSerializer):
+    privacy_consent = serializers.BooleanField(required=True, write_only=True)
+
+    class Meta(BaseUserCreateSerializer.Meta):
+        model = User
+        fields = (*BaseUserCreateSerializer.Meta.fields, 'privacy_consent')
+
+    def validate(self, attrs):
+        if not attrs.pop('privacy_consent', False):
+            raise serializers.ValidationError({'privacy_consent': PRIVACY_CONSENT_ERROR_MESSAGE})
+        return super().validate(attrs)
 
 
 class AvatarSerializer(serializers.ModelSerializer):
@@ -70,17 +86,20 @@ def _validate_contact(contact_method, contact_value):
 
 
 class ConsultationCreateSerializer(serializers.ModelSerializer):
-
     website = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    privacy_consent = serializers.BooleanField(required=True, write_only=True)
 
     class Meta:
         model = Consultation
-        fields = ('name', 'contact_method', 'contact_value', 'message', 'website')
+        fields = ('name', 'contact_method', 'contact_value', 'message', 'website', 'privacy_consent')
 
     def validate(self, attrs):
         # Honeypot: обычный пользователь это поле не видит и не заполняет, непустое значение предполагает бота.
         if attrs.pop(HONEYPOT_FIELD_NAME, ''):
             raise serializers.ValidationError({HONEYPOT_FIELD_NAME: HONEYPOT_ERROR_MESSAGE})
+
+        if not attrs.pop('privacy_consent', False):
+            raise serializers.ValidationError({'privacy_consent': PRIVACY_CONSENT_ERROR_MESSAGE})
 
         _validate_contact(attrs['contact_method'], attrs['contact_value'])
         return attrs
@@ -100,7 +119,6 @@ class ConsultationOwnerUpdateSerializer(serializers.ModelSerializer):
 
 
 class ConsultationSerializer(serializers.ModelSerializer):
-
     user = UserPublicSerializer(read_only=True)
 
     class Meta:
@@ -113,12 +131,14 @@ class ConsultationSerializer(serializers.ModelSerializer):
 
 
 class ConsultationStatusUpdateSerializer(serializers.ModelSerializer):
+
     class Meta:
         model = Consultation
         fields = ('status',)
 
 
 class ServicePriceSerializer(serializers.ModelSerializer):
+
     class Meta:
         model = ServicePrice
         fields = ('id', 'title', 'description', 'price', 'duration')

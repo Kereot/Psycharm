@@ -54,6 +54,7 @@ def _api_payload(**overrides):
         'contact_method': 'phone',
         'contact_value': DEFAULT_CONTACT_VALUE,
         'message': 'Хочу записаться на консультацию.',
+        'privacy_consent': True,
     }
     payload.update(overrides)
     return payload
@@ -251,6 +252,32 @@ class ConsultationHoneypotTests(ThrottleCacheClearingTestCase):
         resp = client.post(CONSULTATION_FORM_URL, _form_payload(website=SPAM_HONEYPOT_VALUE))
 
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(Consultation.objects.count(), 0)
+
+
+class ConsultationPrivacyConsentApiTests(ThrottleCacheClearingTestCase):
+    """
+    Сайтовая ConsultationForm отклоняет privacy_consent=False сама (BooleanField
+    required=True) - у DRF такого нет по умолчанию, поэтому это отдельно
+    проверяется на уровне ConsultationCreateSerializer.validate().
+    """
+
+    def test_api_rejects_missing_consent(self):
+        client = APIClient()
+        payload = _api_payload()
+        del payload['privacy_consent']
+        resp = client.post(CONSULTATION_API_URL, payload, format='json')
+
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('privacy_consent', resp.data)
+        self.assertEqual(Consultation.objects.count(), 0)
+
+    def test_api_rejects_false_consent(self):
+        client = APIClient()
+        resp = client.post(CONSULTATION_API_URL, _api_payload(privacy_consent=False), format='json')
+
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('privacy_consent', resp.data)
         self.assertEqual(Consultation.objects.count(), 0)
 
 
@@ -855,6 +882,7 @@ class SessionBasedConsultationClaimingTests(ThrottleCacheClearingTestCase):
         client.post('/api/v1/users/', {
             'username': 'apiclaimuser', 'email': 'apiclaimuser@example.com',
             'first_name': 'А', 'last_name': 'Б', 'password': VALID_PASSWORD,
+            'privacy_consent': True,
         }, format='json')
 
         consultation.refresh_from_db()
