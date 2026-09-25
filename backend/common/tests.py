@@ -2,10 +2,11 @@ from unittest.mock import patch
 
 import requests
 from django.core.cache import cache
-from django.test import SimpleTestCase, TestCase, override_settings
+from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 
 from common.notifications import send_email_notification, send_telegram_notification
 from common.rate_limit import is_rate_limited
+from common.request import get_client_ip
 
 
 @override_settings(ADMIN_NOTIFICATION_EMAIL='admin@example.com', DEFAULT_FROM_EMAIL='noreply@example.com')
@@ -89,3 +90,52 @@ class IsRateLimitedTests(TestCase):
         self.assertTrue(mock_set.call_args_list)
         for _, kwargs in mock_set.call_args_list:
             self.assertEqual(kwargs.get('timeout'), window_seconds)
+
+
+class GetClientIpTests(SimpleTestCase):
+    """
+    За Caddy -> nginx -> gunicorn REMOTE_ADDR - адрес контейнера nginx, одинаковый
+    для всех посетителей: без чтения X-Forwarded-For лимиты общие на весь сайт.
+
+    TRUSTED_PROXY_HOPS=1 - наша инфраструктура дописывает в X-Forwarded-For
+    ровно одно звено (nginx), так что доверенная длина цепочки - всегда 2:
+    [то, что решил Caddy, IP контейнера Caddy]. Любая другая длина - сигнал,
+    что цепочка не такая, как ожидалось, а не повод угадывать позицию.
+    """
+
+    def _request(self, **headers):
+        return RequestFactory().get('/', REMOTE_ADDR='172.18.0.5', **headers)
+
+    @override_settings(TRUSTED_PROXY_HOPS=1)
+    def test_takes_entry_before_our_own_hops_when_length_matches(self):
+        request = self._request(HTTP_X_FORWARDED_FOR='203.0.113.7, 172.18.0.2')
+
+        self.assertEqual(get_client_ip(request), '203.0.113.7')
+
+    @override_settings(TRUSTED_PROXY_HOPS=1)
+    def test_falls_back_and_warns_when_chain_shorter_than_expected(self):
+        # Например, кто-то обошёл nginx/Caddy и достучался до backend напрямую.
+        request = self._request(HTTP_X_FORWARDED_FOR='203.0.113.7')
+
+        with self.assertLogs('common.request', level='WARNING'):
+            self.assertEqual(get_client_ip(request), '172.18.0.5')
+
+    @override_settings(TRUSTED_PROXY_HOPS=1)
+    def test_falls_back_and_warns_when_chain_longer_than_expected(self):
+        # Например, добавили ещё один прокси (CDN) и забыли поднять TRUSTED_PROXY_HOPS.
+        request = self._request(HTTP_X_FORWARDED_FOR='203.0.113.7, 198.51.100.1, 172.18.0.2')
+
+        with self.assertLogs('common.request', level='WARNING'):
+            self.assertEqual(get_client_ip(request), '172.18.0.5')
+
+    @override_settings(TRUSTED_PROXY_HOPS=1)
+    def test_falls_back_and_warns_without_forwarded_for(self):
+        with self.assertLogs('common.request', level='WARNING'):
+            self.assertEqual(get_client_ip(self._request()), '172.18.0.5')
+
+    @override_settings(TRUSTED_PROXY_HOPS=0)
+    def test_ignores_forwarded_for_when_no_trusted_hops(self):
+        # Без прокси (локальная разработка) заголовок мог подставить сам клиент.
+        request = self._request(HTTP_X_FORWARDED_FOR='203.0.113.7, 172.18.0.2')
+
+        self.assertEqual(get_client_ip(request), '172.18.0.5')

@@ -16,6 +16,7 @@ from common.constants import (
     FORM_SESSION_WRITE_RATE_LIMIT_WINDOW_SECONDS,
 )
 from common.rate_limit import is_rate_limited
+from common.request import get_client_ip
 
 
 def article_list(request):
@@ -53,7 +54,7 @@ def article_detail(request, slug):
 
     if request.method == 'POST' and not request.user.is_authenticated:
         # Ограничение по IP против флуд POST запросами.
-        ip = request.META.get('REMOTE_ADDR', '')
+        ip = get_client_ip(request)
         if not is_rate_limited(
             'article_pending_form', ip, FORM_SESSION_WRITE_RATE_LIMIT, FORM_SESSION_WRITE_RATE_LIMIT_WINDOW_SECONDS,
         ):

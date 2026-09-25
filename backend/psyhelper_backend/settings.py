@@ -14,6 +14,7 @@ from common.constants import (
     DEFAULT_DB_PORT,
     DEFAULT_EMAIL_PORT,
     DEFAULT_HSTS_SECONDS,
+    DEFAULT_TRUSTED_PROXY_HOPS,
     DJANGO_CACHE_TABLE,
     EMAIL_TIMEOUT_SECONDS,
     JWT_ACCESS_TOKEN_LIFETIME_MINUTES,
@@ -39,6 +40,7 @@ CSRF_COOKIE_SECURE = not DEBUG
 SECURE_SSL_REDIRECT = not DEBUG
 SECURE_HSTS_SECONDS = int(os.getenv('SECURE_HSTS_SECONDS', DEFAULT_HSTS_SECONDS)) if not DEBUG else 0
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https') if not DEBUG else None
+TRUSTED_PROXY_HOPS = int(os.getenv('TRUSTED_PROXY_HOPS', DEFAULT_TRUSTED_PROXY_HOPS)) if not DEBUG else 0
 
 
 INSTALLED_APPS = [
@@ -152,9 +154,9 @@ if DB_ENGINE == 'postgres':
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
-            'NAME': os.getenv('DB_NAME', 'django'),
-            'USER': os.getenv('DB_USER', 'django'),
-            'PASSWORD': os.getenv('DB_PASSWORD', ''),
+            'NAME': os.getenv('POSTGRES_DB', 'django'),
+            'USER': os.getenv('POSTGRES_USER', 'django'),
+            'PASSWORD': os.getenv('POSTGRES_PASSWORD', ''),
             'HOST': os.getenv('DB_HOST', 'localhost'),
             'PORT': os.getenv('DB_PORT', str(DEFAULT_DB_PORT)),
         }
