@@ -95,8 +95,9 @@
 
 ## Установка и запуск (локально)
 
-Проект пока не развёрнут на удалённом сервере - ниже только локальный запуск
-для разработки.
+Локальный запуск для разработки.
+Про запуск через Docker Compose (для сервера) - в разделе
+[Развёртывание (Docker Compose + CI/CD)](#развёртывание-docker-compose--cicd).
 
 ### 1. Клонировать репозиторий
 
@@ -152,9 +153,7 @@ cp .env.example .env
 
 - `SECRET_KEY`, `DEBUG`, `ALLOWED_HOSTS`;
 - `DB_ENGINE` - `sqlite3` (по умолчанию, проще для локальной разработки) или
-  `postgres` (+ `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`) -
-  в `.env.example` активен `sqlite3`, для PostgreSQL замените строку на
-  `DB_ENGINE=postgres`;
+  `postgres` (+ `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `DB_HOST`, `DB_PORT`);
 - `EMAIL_*` - SMTP для уведомлений администратору (по умолчанию письма
   просто печатаются в консоль);
 - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ADMIN_CHAT_ID` - уведомления в Telegram
@@ -204,6 +203,100 @@ python manage.py test
 ```
 flake8 .
 ```
+
+## Развёртывание (Docker Compose + CI/CD)
+
+Три контейнера: `db` (PostgreSQL), `backend` (gunicorn) и `nginx` (отдаёт
+`/static/`, `/media/`, проксирует остальное на `backend`).
+
+Порты на хост не публикуются: на сервере 80/443 держит Caddy (в контейнере, выдаёт и
+обновляет сертификаты), он ходит к `psycharm-nginx` по имени контейнера через
+общую внешнюю docker-сеть `proxy`.
+
+`docker-compose.yml` в корне репозитория использует готовые образы с Docker Hub - их собирает и пушит
+GitHub Actions при пуше в `master`, после чего по ssh обновляет контейнеры на сервере.
+
+Миграции, `createcachetable` и `collectstatic` выполняются автоматически при каждом старте `backend`
+(`backend/entrypoint.sh`).
+
+### Локальная проверка сборки
+
+`docker-compose.override.yml` подключается автоматически: собирает образы на
+месте (`build:`) вместо pull с Docker Hub и публикует nginx на
+`http://localhost:8080` (без Caddy). На сервере этого файла быть не
+должно (только `docker-compose.yml` - его копирует `main.yml`).
+
+Внешняя сеть `proxy` должна существовать и локально:
+
+```
+docker network create proxy
+```
+
+```
+cp .env.example .env
+```
+
+Для локальной проверки в `.env` достаточно `DEBUG=True`.
+
+```
+docker compose up --build -d
+```
+
+```
+docker compose exec backend python manage.py createsuperuser
+```
+
+### Деплой на сервере (GitHub Actions)
+
+1. На сервере необходим файл `.env` в корне приложения (рядом с `docker-compose.yml`). Обязательно:
+   - `DB_ENGINE=postgres`, `DB_HOST=db` (имя сервиса, не `localhost`);
+   - `POSTGRES_DB`/`POSTGRES_USER`/`POSTGRES_PASSWORD` - их читает и образ
+     `postgres` (создаёт пользователя и базу при первой инициализации тома),
+     и Django; после первого запуска менять их в `.env` бесполезно;
+   - `DEBUG=False`, `SECRET_KEY`;
+   - `ALLOWED_HOSTS`/`CSRF_TRUSTED_ORIGINS` - реальный домен (в
+     `CSRF_TRUSTED_ORIGINS` - со схемой, например `https://example.com`).
+2. В Caddyfile на сервере - блок для домена (DNS-запись домена должна вести на
+   сервер, иначе Caddy не выдаст сертификат):
+
+   ```
+   <ваш_сервер.домен> {
+       reverse_proxy psycharm-nginx:80
+   }
+   ```
+
+   Заголовки `X-Forwarded-Proto`/`X-Forwarded-For` Caddy выставляет сам, без
+   дополнительной настройки - см. «Про HTTPS и IP клиента» ниже.
+3. В репозитории на GitHub: Settings → Secrets and variables → Actions,
+   добавить `DOCKER_USERNAME`, `DOCKER_PASSWORD`, `HOST`, `USER`, `SSH_KEY`
+   и (если нужны уведомления о деплое) `TELEGRAM_TO`, `TELEGRAM_TOKEN`.
+4. Пуш в `master` прогоняет тесты и flake8, собирает и пушит образы на Docker
+   Hub, копирует `docker-compose.yml` на сервер по ssh и перезапускает стек.
+
+### Про HTTPS и IP клиента
+
+По `X-Forwarded-For` (`common/request.py`) считаются лимиты на заявки, вход и
+комментарии: `REMOTE_ADDR` за прокси - адрес контейнера nginx, один на всех
+посетителей.
+
+`X-Forwarded-For` - условный список, куда каждый прокси дописывает адрес предыдущего
+звена. Доверять можно только хвосту справа, который дописала наша собственная
+инфраструктура. `TRUSTED_PROXY_HOPS` в `.env` (по умолчанию 1) - явное число таких узлов, Caddy
+без `trusted_proxies` себя не дописывает, а полностью заменяет заголовок на
+настоящий IP клиента. При ожидаемой длине цепочки берём то, что перед нашим
+хвостом; при любом расхождении - откатываемся на `REMOTE_ADDR` и пишем
+предупреждение в лог, а не угадываем позицию.
+
+**Если добавите ещё один прокси перед Caddy (CDN и т.п.) - поднимите
+`TRUSTED_PROXY_HOPS` соответственно.** Учтите: если тогда же включите Caddy
+`trusted_proxies`, это меняет и поведение самого Caddy - без `trusted_proxies`
+он заменяет `X-Forwarded-For` целиком, с ним - дополняет существующую
+цепочку, так что пересчитывать число нужно по факту, а не просто прибавлять
+единицу за каждый физический узел.
+
+Это и общая для nginx/Caddy предпосылка - что nginx не доступен снаружи в
+обход Caddy - держатся на том, что порт nginx не публикуется на хост. Не
+публикуйте его.
 
 ## Автор
 

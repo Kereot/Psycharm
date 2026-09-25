@@ -33,6 +33,7 @@ from common.constants import (
 )
 from common.exceptions import DuplicateRatingError
 from common.rate_limit import is_rate_limited
+from common.request import get_client_ip
 from consultations.models import Consultation
 from consultations.services import claim_session_consultations, remember_anonymous_consultation
 from consultations.signals import dispatch_consultation_update_notification
@@ -178,7 +179,7 @@ class ConsultationViewSet(
     def perform_create(self, serializer):
         user = self.request.user if self.request.user.is_authenticated else None
         # Лимит — только на реально валидные отправки; опечатки не тратят квоту впустую.
-        sender_id = str(user.pk) if user is not None else self.request.META.get('REMOTE_ADDR', '')
+        sender_id = str(user.pk) if user is not None else get_client_ip(self.request)
         if is_rate_limited(
             'consultation_create', sender_id,
             CONSULTATION_CREATE_UPDATE_RATE_LIMIT, CONSULTATION_CREATE_UPDATE_RATE_LIMIT_WINDOW_SECONDS,

@@ -60,6 +60,7 @@ DEFAULT_EMAIL_PORT = 587
 DEFAULT_DB_PORT = 5432
 # Стартовое значение HSTS — час, меняем через SECURE_HSTS_SECONDS в .env, когда HTTPS стабилен.
 DEFAULT_HSTS_SECONDS = 3600
+DEFAULT_TRUSTED_PROXY_HOPS = 1
 
 DJANGO_CACHE_TABLE = 'django_cache'
 

@@ -1,0 +1,17 @@
+# Подхватывается docker compose автоматически поверх docker-compose.yml.
+# Даёт собрать образы локально (build) вместо pull с Docker Hub - удобно,
+# чтобы проверить стек ДО того, как GitHub Actions что-то туда запушит.
+# Локально Caddy нет, поэтому nginx публикуется на хост сам.
+# На сервере этого файла быть не должно (сервер должен именно тянуть готовые
+# образы) - scp в workflow копирует только docker-compose.yml.
+# Внешняя сеть proxy должна существовать и локально: docker network create proxy
+services:
+  backend:
+    build: ./backend
+    image: kereot/psyhelper-backend
+
+  nginx:
+    build: ./infra
+    image: kereot/psyhelper-proxy
+    ports:
+      - "8080:80"

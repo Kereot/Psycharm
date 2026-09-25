@@ -11,6 +11,7 @@ from common.constants import (
     STAFF_PANEL_PAGE_SIZE,
 )
 from common.rate_limit import is_rate_limited
+from common.request import get_client_ip
 from consultations.forms import ConsultationEditForm, ConsultationForm
 from consultations.models import Consultation
 from consultations.services import remember_anonymous_consultation
@@ -27,7 +28,7 @@ def consultation_request(request):
 
     user = request.user if request.user.is_authenticated else None
     # Отправитель - IP для анонима, пользователь для авторизованного, а не контактные данные из формы.
-    sender_id = str(user.pk) if user is not None else request.META.get('REMOTE_ADDR', '')
+    sender_id = str(user.pk) if user is not None else get_client_ip(request)
     # Лимит — только на реально валидные отправки.
     if is_rate_limited(
         'consultation_create', sender_id,

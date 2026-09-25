@@ -1,0 +1,50 @@
+volumes:
+  pg_data:
+  static:
+  media:
+
+services:
+  db:
+    image: postgres:16-alpine
+    env_file: .env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+
+  backend:
+    image: kereot/psyhelper-backend
+    # Уникальное имя: nginx обращается к нему по нему, а не по "backend" - в общей
+    # сети proxy рядом могут жить контейнеры других проектов со своим сервисом backend.
+    container_name: psycharm-backend
+    env_file: .env
+    restart: unless-stopped
+    volumes:
+      - static:/app/staticfiles
+      - media:/app/media
+    depends_on:
+      db:
+        condition: service_healthy
+
+  nginx:
+    image: kereot/psyhelper-proxy
+    container_name: psycharm-nginx
+    restart: unless-stopped
+    volumes:
+      - static:/static
+      - media:/media
+    depends_on:
+      - backend
+    # Порты на хост не публикуются: 80/443 держит Caddy, он ходит сюда по имени
+    # контейнера через общую сеть proxy.
+    networks:
+      - default
+      - proxy
+
+networks:
+  proxy:
+    external: true

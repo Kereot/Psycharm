@@ -7,6 +7,7 @@ from rest_framework.status import HTTP_429_TOO_MANY_REQUESTS
 
 from common.constants import LOGIN_RATE_LIMIT, LOGIN_RATE_LIMIT_WINDOW_SECONDS
 from common.rate_limit import is_rate_limited
+from common.request import get_client_ip
 from consultations.services import claim_session_consultations
 from users.forms import LoginForm, ProfileForm, RegistrationForm
 
@@ -36,7 +37,7 @@ class LoginView(BaseLoginView):
 
     def post(self, request, *args, **kwargs):
         # Здесь лимит именно на попытку (валидную или нет).
-        ip = request.META.get('REMOTE_ADDR', '')
+        ip = get_client_ip(request)
         if is_rate_limited('login', ip, LOGIN_RATE_LIMIT, LOGIN_RATE_LIMIT_WINDOW_SECONDS):
             messages.error(request, 'Слишком много попыток входа. Попробуйте позже.')
             context = self.get_context_data(form=self.get_form())

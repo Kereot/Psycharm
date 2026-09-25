@@ -1,0 +1,4 @@
+# Репозиторий редактируется на Windows (core.autocrlf=true), но всё выполняется
+# на Linux (Docker-контейнеры, GitHub Actions). Без eol=lf git на следующем
+# checkout молча превращает LF в CRLF - контейнер падает на старте с "no such file or directory" для entrypoint.sh.
+* text=auto eol=lf
