@@ -3,26 +3,32 @@
 {% block title %}Цены{% endblock %}
 
 {% block content %}
-<h1 class="mb-4">Цены</h1>
-
-<div class="row g-4">
-    {% for item in prices %}
-        <div class="col-md-4">
-            <div class="card h-100">
-                <div class="card-body">
-                    <h2 class="h5 card-title">{{ item.title }}</h2>
-                    {% if item.description %}
-                        <p class="card-text">{{ item.description }}</p>
-                    {% endif %}
-                    <p class="card-text fs-4 mb-1">{{ item.price }}</p>
-                    <p class="card-text text-muted">{{ item.duration }}</p>
-                </div>
-            </div>
-        </div>
-    {% empty %}
-        <p class="text-muted">Прайс пока не заполнен.</p>
-    {% endfor %}
+<div class="page-head">
+    <h1>Цены</h1>
 </div>
 
-<a href="{% url 'consultations:request' %}" class="btn btn-primary mt-4">Записаться на консультацию</a>
+{% if prices %}
+    <ul class="price-list">
+        {% for item in prices %}
+            <li class="price-row">
+                <div>
+                    <h2 class="price-row__title">{{ item.title }}</h2>
+                    {% if item.description %}
+                        <p class="price-row__desc">{{ item.description }}</p>
+                    {% endif %}
+                </div>
+                <p class="price-row__cost">
+                    <span class="price-row__price">{{ item.price }}</span>
+                    <span class="price-row__duration">{{ item.duration }}</span>
+                </p>
+            </li>
+        {% endfor %}
+    </ul>
+{% else %}
+    <p class="empty">Прайс пока не заполнен.</p>
+{% endif %}
+
+<div class="actions">
+    <a href="{% url 'consultations:request' %}" class="btn btn-primary btn-lg">Записаться на консультацию</a>
+</div>
 {% endblock %}

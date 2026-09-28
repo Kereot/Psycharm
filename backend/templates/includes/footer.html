@@ -1,5 +1,16 @@
-<footer class="border-top py-3 mt-auto">
-    <div class="container text-muted small">
-        <a href="{% url 'pages:privacy' %}">Политика обработки персональных данных</a>
+<footer class="site-footer">
+    <div class="container site-footer__inner">
+        <a class="brand" href="{% url 'pages:home' %}">PsyHelper</a>
+
+        <nav aria-label="Ссылки внизу страницы">
+            <ul class="footer-links">
+                <li><a href="{% url 'articles:list' %}">Статьи</a></li>
+                <li><a href="{% url 'pages:prices' %}">Цены</a></li>
+                <li><a href="{% url 'pages:contacts' %}">Контакты</a></li>
+                <li><a href="{% url 'pages:privacy' %}">Политика обработки персональных данных</a></li>
+            </ul>
+        </nav>
+
+        <p class="site-footer__note">© {% now "Y" %} PsyHelper</p>
     </div>
 </footer>

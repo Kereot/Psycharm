@@ -3,21 +3,34 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{% block title %}PsyHelper{% endblock %}</title>
+    <meta name="theme-color" content="#EDF1F1">
+    <title>{% block title %}PsyHelper{% endblock %}{% block title_suffix %} — PsyHelper{% endblock %}</title>
+    <link rel="icon" type="image/svg+xml" href="{% static 'img/favicon.svg' %}">
+    <link rel="preload" href="{% static 'fonts/alegreya-cyrillic-wght-normal.woff2' %}" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="{% static 'fonts/golos-text-cyrillic-wght-normal.woff2' %}" as="font" type="font/woff2" crossorigin>
+    {# Латиница Golos Text нужна на каждой странице ради бренда "PsyHelper" в шапке и подвале. #}
+    <link rel="preload" href="{% static 'fonts/golos-text-latin-wght-normal.woff2' %}" as="font" type="font/woff2" crossorigin>
     <link rel="stylesheet" href="{% static 'vendor/bootstrap/css/bootstrap.min.css' %}">
+    <link rel="stylesheet" href="{% static 'css/site.css' %}">
 </head>
 <body>
+<a class="skip-link" href="#main">Перейти к содержанию</a>
+
 {% include "includes/header.html" %}
 
-<div class="container pb-5">
-    {% if messages %}
-        {% for message in messages %}
-            <div class="alert alert-{{ message.tags|default:'info' }}">{{ message }}</div>
-        {% endfor %}
-    {% endif %}
+<main id="main" class="site-main">
+    <div class="container">
+        {% if messages %}
+            <div class="messages" role="status">
+                {% for message in messages %}
+                    <div class="alert alert-{% if message.tags == 'error' %}danger{% else %}{{ message.tags|default:'info' }}{% endif %}">{{ message }}</div>
+                {% endfor %}
+            </div>
+        {% endif %}
 
-    {% block content %}{% endblock %}
-</div>
+        {% block content %}{% endblock %}
+    </div>
+</main>
 
 {% include "includes/footer.html" %}
 

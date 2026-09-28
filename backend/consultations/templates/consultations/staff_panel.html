@@ -3,14 +3,17 @@
 {% block title %}Заявки на консультацию{% endblock %}
 
 {% block content %}
-<h1 class="mb-4">Заявки на консультацию</h1>
+<div class="page-head">
+    <h1>Заявки на консультацию</h1>
+</div>
 
-<div id="consultations-app">
-    <p>Загрузка...</p>
+<div id="consultations-app" aria-live="polite">
+    <p class="empty">Загрузка…</p>
 </div>
 
 <script>
 const STATUS_LABELS = {new: 'Новая', in_progress: 'В работе', closed: 'Закрыта'};
+const CONTACT_LABELS = {phone: 'Телефон', email: 'Email', telegram: 'Telegram', whatsapp: 'WhatsApp'};
 
 function getCookie(name) {
     const match = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
@@ -55,7 +58,7 @@ function renderTable(data) {
     const items = data.results;
 
     if (!items.length) {
-        root.innerHTML = '<p>Заявок пока нет.</p>';
+        root.innerHTML = '<p class="empty">Заявок пока нет.</p>';
         return;
     }
 
@@ -68,43 +71,43 @@ function renderTable(data) {
     const rows = groups.map((group, groupIndex) => {
         const rowClass = groupIndex % 2 ? 'table-light' : '';
         const groupBadge = group.length > 1
-            ? `<span class="badge bg-secondary ms-1" title="Заявок с этим контактом на этой странице: ${group.length}">×${group.length}</span>`
+            ? `<span class="tag tag--count" title="Заявок с этим контактом на этой странице: ${group.length}">×${group.length}</span>`
             : '';
 
         return group.map((item, indexInGroup) => `
-            <tr data-id="${item.id}" class="${rowClass}">
-                <td>
+            <tr data-id="${item.id}" class="${rowClass}" role="row">
+                <td role="cell" data-label="Имя">
                     ${escapeHtml(item.name)}
-                    ${item.notification_failed ? '<span class="badge bg-warning text-dark ms-1" title="Не удалось уведомить ни email, ни Telegram">⚠ уведомление не дошло</span>' : ''}
+                    ${item.notification_failed ? '<span class="tag tag--warn" title="Не удалось уведомить ни email, ни Telegram">Уведомление не дошло</span>' : ''}
                 </td>
-                <td>${escapeHtml(item.contact_method)}: ${escapeHtml(item.contact_value)}${indexInGroup === 0 ? groupBadge : ''}</td>
-                <td style="max-width: 300px; white-space: pre-wrap;">${escapeHtml(item.message)}</td>
-                <td>${new Date(item.created_at).toLocaleString('ru-RU')}</td>
-                <td>
-                    <select class="form-select form-select-sm status-select">${options}</select>
+                <td role="cell" data-label="Контакт">${escapeHtml(CONTACT_LABELS[item.contact_method] || item.contact_method)}: ${escapeHtml(item.contact_value)}${indexInGroup === 0 ? groupBadge : ''}</td>
+                <td role="cell" data-label="Сообщение" class="cell-text">${escapeHtml(item.message)}</td>
+                <td role="cell" data-label="Создана" class="cell-date">${new Date(item.created_at).toLocaleString('ru-RU', {dateStyle: 'medium', timeStyle: 'short'})}</td>
+                <td role="cell" data-label="Статус">
+                    <select class="form-select form-select-sm status-select" aria-label="Статус заявки: ${escapeHtml(item.name)}">${options}</select>
                 </td>
             </tr>
         `).join('');
     }).join('');
 
     root.innerHTML = `
-        <table class="table align-middle">
+        <table class="table data-table align-middle" role="table">
             <thead>
-                <tr>
-                    <th>Имя</th>
-                    <th>Контакт</th>
-                    <th>Сообщение</th>
-                    <th>Создана</th>
-                    <th>Статус</th>
+                <tr role="row">
+                    <th scope="col" role="columnheader">Имя</th>
+                    <th scope="col" role="columnheader">Контакт</th>
+                    <th scope="col" role="columnheader">Сообщение</th>
+                    <th scope="col" role="columnheader">Создана</th>
+                    <th scope="col" role="columnheader">Статус</th>
                 </tr>
             </thead>
             <tbody>${rows}</tbody>
         </table>
-        <nav class="d-flex justify-content-between align-items-center">
-            <span class="text-muted small">Всего заявок: ${data.count}</span>
+        <nav class="table-footer" aria-label="Страницы списка заявок">
+            <span>Всего заявок: ${data.count}</span>
             <div class="btn-group">
-                <button type="button" class="btn btn-outline-secondary btn-sm" id="prev-page" ${data.previous ? '' : 'disabled'}>← Назад</button>
-                <button type="button" class="btn btn-outline-secondary btn-sm" id="next-page" ${data.next ? '' : 'disabled'}>Вперёд →</button>
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="prev-page" ${data.previous ? '' : 'disabled'}>Назад</button>
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="next-page" ${data.next ? '' : 'disabled'}>Вперёд</button>
             </div>
         </nav>
     `;

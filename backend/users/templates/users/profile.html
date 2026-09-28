@@ -3,14 +3,21 @@
 {% block title %}Мой профиль{% endblock %}
 
 {% block content %}
-<h1 class="mb-4">Мой профиль</h1>
+<div class="page-head">
+    <h1>Мой профиль</h1>
+</div>
 
-<div class="col-md-6">
-    <p><strong>Логин:</strong> {{ user.username }}</p>
-
-    {% if user.avatar %}
-        <img src="{{ user.avatar.url }}" class="rounded-circle mb-3" width="120" height="120" alt="Аватар">
-    {% endif %}
+<div class="form-panel">
+    <div class="profile-head">
+        <span class="avatar avatar--lg" aria-hidden="true">
+            {% if user.avatar %}
+                <img src="{{ user.avatar.url }}" alt="">
+            {% else %}
+                {{ user.username|slice:":1"|upper }}
+            {% endif %}
+        </span>
+        <p class="profile-head__login">Логин: <strong>{{ user.username }}</strong></p>
+    </div>
 
     <form method="post" enctype="multipart/form-data" novalidate>
         {% csrf_token %}
@@ -20,16 +27,12 @@
         {% endif %}
 
         {% for field in form %}
-            <div class="mb-3">
-                <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
-                {{ field }}
-                {% if field.errors %}
-                    <div class="text-danger small">{{ field.errors }}</div>
-                {% endif %}
-            </div>
+            {% include "includes/form_field.html" %}
         {% endfor %}
 
-        <button type="submit" class="btn btn-primary">Сохранить</button>
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Сохранить</button>
+        </div>
     </form>
 </div>
 {% endblock %}
