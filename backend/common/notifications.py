@@ -42,7 +42,12 @@ def send_telegram_notification(message):
             timeout=TELEGRAM_REQUEST_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
-    except requests.RequestException:
-        logger.exception('Не удалось отправить Telegram-уведомление: %s', message)
+    except requests.RequestException as error:
+        # Токен бота стоит в URL, а requests кладёт URL в текст и HTTPError, и ConnectionError/Timeout
+        # (в том числе в цепочку причин) - поэтому причину пишем с замаскированным токеном и без traceback.
+        logger.error(
+            'Не удалось отправить Telegram-уведомление: %s: %s',
+            type(error).__name__, str(error).replace(token, '***'),
+        )
         return False
     return True

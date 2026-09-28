@@ -137,7 +137,6 @@ TEMPLATES = [
         'OPTIONS': {
             'context_processors': [
                 'django.template.context_processors.request',
-                'django.template.context_processors.media',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
             ],
@@ -259,6 +258,10 @@ LOGGING = {
     },
     'loggers': {
         'django.db.backends': {
+            'level': 'WARNING',
+        },
+        # На DEBUG urllib3 пишет строку запроса целиком, с токеном бота в пути.
+        'urllib3': {
             'level': 'WARNING',
         },
     },
