@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import requests
 from django.core.cache import cache
@@ -32,6 +32,19 @@ class SendEmailNotificationTests(SimpleTestCase):
         self.assertFalse(result)
         mock_send_mail.assert_not_called()
 
+    @patch('common.notifications.send_mail', side_effect=OSError('[Errno 101] Network is unreachable'))
+    def test_failure_log_names_the_notification_but_not_its_body(self, mock_send_mail):
+        # Тема (с именем клиента) в логе допустима - по ней видно, какое письмо не ушло, а
+        # traceback показывает, на каком шаге упало соединение. Тело письма (контакт, текст) - нет.
+        with self.assertLogs('common.notifications', level='ERROR') as logs:
+            send_email_notification('Новая заявка от Иван Иванов', 'Телефон +79991234567')
+
+        output = '\n'.join(logs.output)
+        self.assertIn('Иван Иванов', output)
+        self.assertIn('Errno 101', output)
+        self.assertNotIn('+79991234567', output)
+        self.assertIsNotNone(logs.records[0].exc_info)
+
 
 @override_settings(TELEGRAM_BOT_TOKEN='test-token', TELEGRAM_ADMIN_CHAT_ID='123456')
 class SendTelegramNotificationTests(SimpleTestCase):
@@ -49,6 +62,44 @@ class SendTelegramNotificationTests(SimpleTestCase):
         result = send_telegram_notification('message')
 
         self.assertFalse(result)
+
+    @patch('common.notifications.requests.post')
+    def test_http_error_log_has_reason_but_no_token_or_message(self, mock_post):
+        # requests кладёт полный URL (с токеном бота) в текст HTTPError, а в
+        # сообщении - данные клиента: ни то, ни другое не должно попасть в лог.
+        # Причина (статус, "Unauthorized") остаётся, токен в ней замаскирован.
+        response = Mock(status_code=401)
+        mock_post.return_value.raise_for_status.side_effect = requests.HTTPError(
+            '401 Client Error: Unauthorized for url: https://api.telegram.org/bottest-token/sendMessage',
+            response=response,
+        )
+
+        with self.assertLogs('common.notifications', level='ERROR') as logs:
+            result = send_telegram_notification('Имя: Иван Иванов\nСвязь: +79991234567')
+
+        output = '\n'.join(logs.output)
+        self.assertFalse(result)
+        self.assertIn('401', output)
+        self.assertIn('Unauthorized', output)
+        self.assertIn('bot***/sendMessage', output)
+        self.assertNotIn('test-token', output)
+        self.assertNotIn('Иван Иванов', output)
+        self.assertNotIn('+79991234567', output)
+        self.assertIsNone(logs.records[0].exc_info)
+
+    @patch('common.notifications.requests.post')
+    def test_connection_error_log_has_reason_but_no_token(self, mock_post):
+        # У ConnectionError/Timeout тоже URL в тексте (Max retries exceeded with url: /bot<token>/...).
+        mock_post.side_effect = requests.ConnectionError(
+            "HTTPSConnectionPool(host='api.telegram.org'): Max retries exceeded with url: /bottest-token/sendMessage",
+        )
+
+        with self.assertLogs('common.notifications', level='ERROR') as logs:
+            send_telegram_notification('message')
+
+        output = '\n'.join(logs.output)
+        self.assertIn('Max retries exceeded', output)
+        self.assertNotIn('test-token', output)
 
     @override_settings(TELEGRAM_BOT_TOKEN='', TELEGRAM_ADMIN_CHAT_ID='')
     @patch('common.notifications.requests.post')

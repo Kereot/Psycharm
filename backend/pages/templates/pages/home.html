@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load static %}
 
 {% block title %}Главная{% endblock %}
 
@@ -6,7 +7,7 @@
 <div class="row g-4">
     <div class="col-md-4">
         {# Демонстрационная иллюстрация - заменить на реальное фото. #}
-        <img src="{{ MEDIA_URL }}pages/home-hero.svg" alt="Спокойствие и осознанность"
+        <img src="{% static 'img/home-hero.svg' %}" alt="Спокойствие и осознанность"
              class="rounded w-100" style="aspect-ratio: 3 / 4; object-fit: cover;">
     </div>
 
