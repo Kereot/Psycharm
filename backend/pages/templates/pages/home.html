@@ -1,56 +1,63 @@
 {% extends "base.html" %}
 {% load static %}
 
-{% block title %}Главная{% endblock %}
+{% block title %}Психотерапевт{% endblock %}
 
 {% block content %}
-<div class="row g-4">
-    <div class="col-md-4">
-        {# Демонстрационная иллюстрация - заменить на реальное фото. #}
-        <img src="{% static 'img/home-hero.svg' %}" alt="Спокойствие и осознанность"
-             class="rounded w-100" style="aspect-ratio: 3 / 4; object-fit: cover;">
-    </div>
-
-    <div class="col-md-4 d-flex flex-column justify-content-center">
-        {# TODO: это заглушка!' #}
-        <h1 class="h3">Кот Котовский</h1>
-        <p class="text-muted">
-            Заглушка описания: образование, специализация и подход к работе психолога.
-            Замените этот текст на реальный.
-
-
-        </p>
-
-        <h1 class="h5">Бережная терапия, которая поможет понять себя</h1>
-        <p class="text-muted">
+<section class="hero" aria-labelledby="hero-title">
+    <div class="hero__text">
+        <h1 class="hero__title" id="hero-title">Бережная терапия, которая поможет понять себя</h1>
+        <p class="hero__lead">
             Научитесь лучше понимать свои чувства, уверенно действовать в
-          различных жизненных ситуациях и находить решения, которые подходят
-          именно вам.
+            различных жизненных ситуациях и находить решения, которые подходят
+            именно вам.
         </p>
-
-        <div>
-            <a href="{% url 'consultations:request' %}" class="btn btn-primary">Записаться на консультацию</a>
+        <div class="actions">
+            <a href="{% url 'consultations:request' %}" class="btn btn-primary btn-lg">Записаться на консультацию</a>
+            <a href="{% url 'pages:prices' %}" class="link-quiet">Цены</a>
         </div>
     </div>
 
-    <div class="col-md-4">
-        <h2 class="h5 mb-3">Последние статьи</h2>
+    <figure class="portrait hero__portrait">
+        {# Демонстрационная иллюстрация 3:4 - заменить на реальный портрет. #}
+        <div class="frame frame--portrait">
+            <img src="{% static 'img/home-hero.svg' %}" width="300" height="400" alt="Спокойствие и осознанность">
+        </div>
+        <figcaption class="portrait__caption">
+            {# TODO: это заглушка! Имя и описание заменить на реальные. #}
+            <p class="portrait__name">Кот Котовский</p>
+            <p class="portrait__about">
+                Заглушка описания: образование, специализация и подход к работе психолога.
+                Замените этот текст на реальный.
+            </p>
+        </figcaption>
+    </figure>
+</section>
 
-        {% for article in recent_articles %}
-            <div class="d-flex gap-3 mb-3 align-items-center">
-                {% if article.image %}
-                    <img src="{{ article.image.url }}" alt="{{ article.title }}" class="rounded flex-shrink-0"
-                         style="width: 64px; height: 64px; object-fit: cover;">
-                {% else %}
-                    <div class="bg-secondary bg-opacity-25 rounded flex-shrink-0" style="width: 64px; height: 64px;"></div>
-                {% endif %}
-                <a href="{% url 'articles:detail' article.slug %}" class="text-decoration-none">{{ article.title }}</a>
-            </div>
-        {% empty %}
-            <p class="text-muted">Пока нет опубликованных статей.</p>
-        {% endfor %}
-
-        <a href="{% url 'articles:list' %}" class="btn btn-outline-secondary btn-sm mt-2">Все статьи</a>
+<section class="recent" aria-labelledby="recent-title">
+    <div class="section-head">
+        <h2 id="recent-title">Последние статьи</h2>
+        <a href="{% url 'articles:list' %}" class="link-quiet">Все статьи</a>
     </div>
-</div>
+
+    {% if recent_articles %}
+        <ul class="tiles">
+            {% for article in recent_articles %}
+                <li class="tile">
+                    <div class="cover">
+                        {% if article.image %}
+                            <img src="{{ article.image.url }}" alt="" loading="lazy">
+                        {% else %}
+                            {% include "includes/cover_placeholder.html" %}
+                        {% endif %}
+                    </div>
+                    <h3 class="tile__title"><a href="{% url 'articles:detail' article.slug %}">{{ article.title }}</a></h3>
+                    {% include "includes/article_meta.html" %}
+                </li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p class="empty">Пока нет опубликованных статей.</p>
+    {% endif %}
+</section>
 {% endblock %}

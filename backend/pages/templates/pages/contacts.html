@@ -3,10 +3,18 @@
 {% block title %}Контакты{% endblock %}
 
 {% block content %}
-<h1 class="mb-4">Контакты</h1>
+<div class="page-head">
+    <h1>Контакты</h1>
+</div>
 
-{# TODO: это заглушка! #}
-<p class="text-muted">
-    Заглушка: здесь будут реальные контактные данные — адрес, телефон, email, соцсети.
-</p>
+<div class="prose">
+    {# TODO: это заглушка! #}
+    <p>
+        Заглушка: здесь будут реальные контактные данные — адрес, телефон, email, соцсети.
+    </p>
+</div>
+
+<div class="actions">
+    <a href="{% url 'consultations:request' %}" class="btn btn-primary btn-lg">Записаться на консультацию</a>
+</div>
 {% endblock %}

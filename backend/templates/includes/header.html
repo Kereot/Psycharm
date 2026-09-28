@@ -1,26 +1,66 @@
-<nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
-    <div class="container d-flex justify-content-between align-items-center">
-        <a class="navbar-brand" href="{% url 'pages:home' %}">PsyHelper</a>
-        <div class="navbar-nav flex-row gap-3 align-items-center">
-            <a class="nav-link" href="{% url 'articles:list' %}">Статьи</a>
-            <a class="nav-link" href="{% url 'pages:about' %}">Обо мне</a>
-            <a class="nav-link" href="{% url 'pages:contacts' %}">Контакты</a>
-            <a class="nav-link" href="{% url 'pages:prices' %}">Цены</a>
-            <a class="nav-link" href="{% url 'consultations:request' %}">Записаться на консультацию</a>
-            {% if user.is_authenticated %}
-                {% if user.is_staff %}
-                    <a class="nav-link" href="{% url 'consultations:staff_panel' %}">Заявки</a>
-                {% endif %}
-                <a class="nav-link" href="{% url 'consultations:my' %}">Мои заявки</a>
-                <a class="nav-link" href="{% url 'users:profile' %}">{{ user.username }}</a>
-                <form method="post" action="{% url 'logout' %}" class="m-0">
-                    {% csrf_token %}
-                    <button type="submit" class="nav-link btn btn-link p-0 border-0">Выйти</button>
-                </form>
-            {% else %}
-                <a class="nav-link" href="{% url 'login' %}">Войти</a>
-                <a class="nav-link" href="{% url 'users:register' %}">Регистрация</a>
-            {% endif %}
+{% with view=request.resolver_match.view_name %}
+<header class="site-header">
+    <nav class="navbar navbar-expand-xl" aria-label="Основное меню">
+        <div class="container">
+            <a class="brand" href="{% url 'pages:home' %}">PsyHelper</a>
+
+            <button class="navbar-toggler menu-toggle" type="button" data-bs-toggle="collapse"
+                    data-bs-target="#site-menu" aria-controls="site-menu" aria-expanded="false" aria-label="Меню">
+                <span class="menu-toggle__label">Меню</span>
+                <span class="menu-toggle__bars" aria-hidden="true"></span>
+            </button>
+
+            <div class="collapse navbar-collapse" id="site-menu">
+                <ul class="navbar-nav site-nav site-nav--main">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'articles:list' %}"{% if view == 'articles:list' or view == 'articles:detail' %} aria-current="page"{% endif %}>Статьи</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'pages:about' %}"{% if view == 'pages:about' %} aria-current="page"{% endif %}>Обо мне</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'pages:prices' %}"{% if view == 'pages:prices' %} aria-current="page"{% endif %}>Цены</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'pages:contacts' %}"{% if view == 'pages:contacts' %} aria-current="page"{% endif %}>Контакты</a>
+                    </li>
+                </ul>
+
+                <ul class="navbar-nav site-nav site-nav--end">
+                    {% if user.is_authenticated %}
+                        {% if user.is_staff %}
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'consultations:staff_panel' %}"{% if view == 'consultations:staff_panel' %} aria-current="page"{% endif %}>Панель заявок</a>
+                            </li>
+                        {% endif %}
+                        <li class="nav-item dropdown">
+                            <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown"
+                               aria-expanded="false">{{ user.username|truncatechars:18 }}</a>
+                            <ul class="dropdown-menu dropdown-menu-end">
+                                <li><a class="dropdown-item" href="{% url 'users:profile' %}">Профиль</a></li>
+                                <li><a class="dropdown-item" href="{% url 'consultations:my' %}">Мои заявки</a></li>
+                                <li>
+                                    <form method="post" action="{% url 'logout' %}" class="m-0">
+                                        {% csrf_token %}
+                                        <button type="submit" class="dropdown-item">Выйти</button>
+                                    </form>
+                                </li>
+                            </ul>
+                        </li>
+                    {% else %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="{% url 'login' %}"{% if view == 'login' %} aria-current="page"{% endif %}>Войти</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="{% url 'users:register' %}"{% if view == 'users:register' %} aria-current="page"{% endif %}>Регистрация</a>
+                        </li>
+                    {% endif %}
+                    <li class="nav-item nav-item--cta">
+                        <a class="btn btn-primary" href="{% url 'consultations:request' %}">Записаться</a>
+                    </li>
+                </ul>
+            </div>
         </div>
-    </div>
-</nav>
+    </nav>
+</header>
+{% endwith %}

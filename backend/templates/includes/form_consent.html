@@ -1,0 +1,10 @@
+{# Чекбокс согласия на обработку ПДн со ссылкой на политику (ссылка живёт в label поля). Ожидает переменную field. #}
+<div class="field field--consent">
+    <div class="form-check">
+        {{ field }}
+        <label class="form-check-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+    </div>
+    {% if field.errors %}
+        <div class="field-errors">{{ field.errors }}</div>
+    {% endif %}
+</div>

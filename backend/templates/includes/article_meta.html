@@ -1,0 +1,5 @@
+{# Автор и дата статьи. Ожидает переменную article. #}
+<p class="meta">
+    <span class="meta__author">{{ article.author }}</span>
+    <time datetime="{{ article.created_at|date:'Y-m-d' }}">{{ article.created_at|date:"j E Y" }}</time>
+</p>

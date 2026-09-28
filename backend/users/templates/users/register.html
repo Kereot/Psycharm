@@ -3,9 +3,11 @@
 {% block title %}Регистрация{% endblock %}
 
 {% block content %}
-<h1 class="mb-4">Регистрация</h1>
+<div class="page-head">
+    <h1>Регистрация</h1>
+</div>
 
-<form method="post" novalidate class="col-md-6">
+<form method="post" novalidate class="form-panel">
     {% csrf_token %}
 
     {% if form.non_field_errors %}
@@ -14,27 +16,16 @@
 
     {% for field in form %}
         {% if field.name != 'privacy_consent' %}
-            <div class="mb-3">
-                <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
-                {{ field }}
-                {% if field.help_text %}
-                    <div class="form-text">{{ field.help_text }}</div>
-                {% endif %}
-                {% if field.errors %}
-                    <div class="text-danger small">{{ field.errors }}</div>
-                {% endif %}
-            </div>
+            {% include "includes/form_field.html" %}
         {% endif %}
     {% endfor %}
 
-    <div class="mb-3 form-check">
-        {{ form.privacy_consent }}
-        <label class="form-check-label" for="{{ form.privacy_consent.id_for_label }}">{{ form.privacy_consent.label }}</label>
-        {% if form.privacy_consent.errors %}
-            <div class="text-danger small">{{ form.privacy_consent.errors }}</div>
-        {% endif %}
-    </div>
+    {% include "includes/form_consent.html" with field=form.privacy_consent %}
 
-    <button type="submit" class="btn btn-primary">Зарегистрироваться</button>
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Зарегистрироваться</button>
+    </div>
 </form>
+
+<p class="form-hint">Уже есть аккаунт? <a href="{% url 'login' %}">Войдите</a>.</p>
 {% endblock %}
