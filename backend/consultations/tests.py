@@ -1041,3 +1041,93 @@ class DemoModeConsultationEditTests(TestCase):
         self._post(contact_value='+79990000000')
 
         self.assertEqual(self.consultation.name, 'Мария_faked')
+
+
+@override_settings(DEMO_MODE=True)
+class DemoModeConsultationApiTests(ThrottleCacheClearingTestCase):
+    """То же, что на сайте (DemoModeConsultationTests), но для API - validated_data сериализаторов."""
+
+    REAL_NAME = 'Иван Реальный'
+
+    def test_create_replaces_name_and_contact_but_keeps_message(self):
+        resp = APIClient().post(CONSULTATION_API_URL, _api_payload(name=self.REAL_NAME), format='json')
+
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        saved = Consultation.objects.get()
+        self.assertNotEqual(saved.name, self.REAL_NAME)
+        self.assertTrue(saved.name.endswith('faked'))
+        self.assertNotEqual(saved.contact_value, DEFAULT_CONTACT_VALUE)
+        self.assertEqual(saved.message, 'Хочу записаться на консультацию.')
+        self.assertFalse(Consultation.objects.filter(contact_value=DEFAULT_CONTACT_VALUE).exists())
+
+    def test_create_response_shows_what_was_actually_stored(self):
+        resp = APIClient().post(CONSULTATION_API_URL, _api_payload(name=self.REAL_NAME), format='json')
+
+        saved = Consultation.objects.get()
+        self.assertEqual(resp.data['name'], saved.name)
+        self.assertEqual(resp.data['contact_value'], saved.contact_value)
+
+    def test_replacement_contact_matches_the_chosen_method_and_is_valid(self):
+        for method, real_value in (('phone', '+79991234567'), ('telegram', '@realuser'), ('email', 'real@mail.ru')):
+            with self.subTest(method=method):
+                Consultation.objects.all().delete()
+                APIClient().post(
+                    CONSULTATION_API_URL, _api_payload(contact_method=method, contact_value=real_value), format='json',
+                )
+
+                saved = Consultation.objects.get()
+                self.assertNotEqual(saved.contact_value, real_value)
+                saved.full_clean()
+
+    def test_invalid_input_is_still_rejected_before_any_replacement(self):
+        resp = APIClient().post(
+            CONSULTATION_API_URL, _api_payload(contact_value=INVALID_PHONE_VALUE), format='json',
+        )
+
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Consultation.objects.count(), 0)
+
+
+@override_settings(DEMO_MODE=True)
+class DemoModeConsultationOwnerUpdateApiTests(TestCase):
+    FAKED_CONTACT = '+70001234567'
+
+    def setUp(self):
+        cache.clear()
+        self.owner = _create_user('demo_api_owner')
+        self.consultation = Consultation.objects.create(
+            user=self.owner, name='Мария_faked', contact_method='phone', contact_value=self.FAKED_CONTACT,
+            message='Старое сообщение',
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.owner)
+        self.url = f'{CONSULTATION_API_URL}{self.consultation.pk}/'
+
+    def _patch(self, **payload):
+        resp = self.client.patch(self.url, payload, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.consultation.refresh_from_db()
+
+    def test_unchanged_contact_is_kept_when_only_message_changes(self):
+        self._patch(message='Новое сообщение')
+
+        self.assertEqual(self.consultation.message, 'Новое сообщение')
+        self.assertEqual(self.consultation.contact_value, self.FAKED_CONTACT)
+
+    def test_resending_the_stored_contact_does_not_regenerate_it(self):
+        self._patch(contact_value=self.FAKED_CONTACT, message='Новое сообщение')
+
+        self.assertEqual(self.consultation.contact_value, self.FAKED_CONTACT)
+
+    def test_changed_contact_is_replaced_and_stays_valid(self):
+        self._patch(contact_value='+79990000000')
+
+        self.assertNotEqual(self.consultation.contact_value, '+79990000000')
+        self.assertNotEqual(self.consultation.contact_value, self.FAKED_CONTACT)
+        self.consultation.full_clean()
+
+    def test_changing_only_the_method_uses_the_new_method_for_the_replacement(self):
+        self._patch(contact_method='email', contact_value='real@mail.ru')
+
+        self.assertEqual(self.consultation.contact_method, 'email')
+        self.assertRegex(self.consultation.contact_value, r'@example\.(com|org|net)$')

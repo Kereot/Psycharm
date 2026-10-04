@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import models
+from django.db.models import Q
 
 from common.constants import (
     ARTICLE_SLUG_MAX_LENGTH,
@@ -53,8 +54,22 @@ class AbstractArticleRelation(models.Model):
         ordering = ('-created_at',)
 
 
+class CommentQuerySet(models.QuerySet):
+    def visible_to(self, user):
+        if user.is_staff:
+            return self
+        if user.is_authenticated:
+            return self.filter(Q(is_approved=True) | Q(author=user))
+        return self.filter(is_approved=True)
+
+
 class Comment(AbstractArticleRelation):
     text = models.TextField('Текст комментария')
+    # True по умолчанию: старые комментарии и созданные в админке сразу видны. На False их
+    # переводят сайтовая форма и API - только когда включена премодерация (CommentSettings).
+    is_approved = models.BooleanField('Одобрен', default=True)
+
+    objects = CommentQuerySet.as_manager()
 
     class Meta(AbstractArticleRelation.Meta):
         verbose_name = 'Комментарий'
@@ -62,6 +77,37 @@ class Comment(AbstractArticleRelation):
 
     def __str__(self):
         return f'{self.author}: {self.text[:VISUAL_NAME_LIMIT]}'
+
+
+class CommentSettings(models.Model):
+    premoderation_enabled = models.BooleanField(
+        'Премодерация комментариев',
+        default=False,
+        help_text=(
+            'Новые комментарии обычных пользователей появятся на сайте только после одобрения '
+            'в разделе «Комментарии». Комментарии сотрудников публикуются сразу. '
+            'Уже ожидающие одобрения комментарии при выключении не публикуются сами.'
+        ),
+    )
+
+    class Meta:
+        verbose_name = 'Настройки комментариев'
+        verbose_name_plural = 'Настройки комментариев'
+
+    def __str__(self):
+        return 'Настройки комментариев'
+
+    def save(self, *args, **kwargs):
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def load(cls):
+        return cls.objects.get_or_create(pk=1)[0]
+
+    @classmethod
+    def requires_moderation(cls, user):
+        return cls.load().premoderation_enabled and not user.is_staff
 
 
 class Rating(AbstractArticleRelation):

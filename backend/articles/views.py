@@ -6,7 +6,7 @@ from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 
 from articles.forms import CommentForm, RatingForm
-from articles.models import Article
+from articles.models import Article, CommentSettings
 from common.constants import (
     ARTICLE_LIST_PAGE_SIZE,
     ARTICLE_PENDING_FORM_SESSION_KEY,
@@ -36,12 +36,14 @@ def article_list(request):
     return render(request, 'articles/article_list.html', context)
 
 
-def _save_relation(request, article, form):
+def _save_relation(request, article, form, **extra_fields):
     if not form.is_valid():
         return False
     obj = form.save(commit=False)
     obj.article = article
     obj.author = request.user
+    for field, value in extra_fields.items():
+        setattr(obj, field, value)
     obj.save()
     return True
 
@@ -92,8 +94,14 @@ def article_detail(request, slug):
             return redirect('articles:detail', slug=article.slug)
 
         comment_form = CommentForm(request.POST)
-        if _save_relation(request, article, comment_form):
-            messages.success(request, 'Комментарий добавлен.')
+        if comment_form.is_valid():
+            # Настройки читаются из БД только для комментария, который действительно будет сохранён.
+            needs_moderation = CommentSettings.requires_moderation(request.user)
+            _save_relation(request, article, comment_form, is_approved=not needs_moderation)
+            if needs_moderation:
+                messages.info(request, 'Комментарий отправлен на модерацию и появится на сайте после проверки.')
+            else:
+                messages.success(request, 'Комментарий добавлен.')
             return redirect('articles:detail', slug=article.slug)
 
     elif request.method == 'POST' and 'submit_rating' in request.POST:
@@ -104,7 +112,7 @@ def article_detail(request, slug):
 
     context = {
         'article': article,
-        'comments': article.comments.select_related('author'),
+        'comments': article.comments.visible_to(request.user).select_related('author'),
         'comment_form': comment_form,
         'rating_form': rating_form,
         'user_rating': user_rating,

@@ -381,3 +381,50 @@ class DemoModeUserTests(TestCase):
         self.assertNotEqual(user.first_name, 'Реальное')
         self.assertTrue(user.first_name.endswith('faked'))
         self.assertEqual(user.last_name, 'Смит_faked')
+
+
+@override_settings(DEMO_MODE=True)
+class DemoModeUserApiTests(TestCase):
+    """То же, что на сайте (DemoModeUserTests), но для Djoser: регистрация и обновление /users/me/."""
+
+    ME_URL = '/api/v1/users/me/'
+
+    def test_registration_replaces_names_but_keeps_username_and_email(self):
+        resp = APIClient().post(
+            API_REGISTER_URL, _api_registration_payload(first_name='Иван', last_name='Иванов'), format='json',
+        )
+
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        user = User.objects.get(username='newuser')
+        self.assertNotEqual(user.first_name, 'Иван')
+        self.assertNotEqual(user.last_name, 'Иванов')
+        self.assertTrue(user.first_name.endswith('faked'))
+        self.assertTrue(user.last_name.endswith('faked'))
+        self.assertEqual(user.email, 'newuser@example.com')
+        self.assertEqual(resp.data['first_name'], user.first_name)
+
+    def test_me_update_replaces_only_changed_names(self):
+        user = User.objects.create_user(
+            username='demoapiprofile', email='demoapiprofile@example.com', password=VALID_PASSWORD,
+            first_name='Анна_faked', last_name='Смит_faked',
+        )
+        client = APIClient()
+        client.force_authenticate(user=user)
+
+        # Меняется только email: имена уже подменены, заново их менять не нужно.
+        client.patch(self.ME_URL, {'email': 'new@example.com'}, format='json')
+        user.refresh_from_db()
+        self.assertEqual((user.first_name, user.last_name), ('Анна_faked', 'Смит_faked'))
+        self.assertEqual(user.email, 'new@example.com')
+
+        # Отправка уже сохранённых значений обратно - тоже не "ввод".
+        client.patch(self.ME_URL, {'first_name': 'Анна_faked'}, format='json')
+        user.refresh_from_db()
+        self.assertEqual(user.first_name, 'Анна_faked')
+
+        # Реально введённое имя подменяется, нетронутая фамилия остаётся.
+        client.patch(self.ME_URL, {'first_name': 'Реальное'}, format='json')
+        user.refresh_from_db()
+        self.assertNotEqual(user.first_name, 'Реальное')
+        self.assertTrue(user.first_name.endswith('faked'))
+        self.assertEqual(user.last_name, 'Смит_faked')

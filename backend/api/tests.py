@@ -3,7 +3,7 @@ from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from articles.models import Article, Comment
+from articles.models import Article, Comment, CommentSettings
 from common.constants import COMMENT_CREATE_RATE_LIMIT
 from pages.models import ServicePrice
 from users.models import User
@@ -132,3 +132,125 @@ class CommentCreateThrottleTests(TestCase):
 
         self.assertEqual(over_limit_resp.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
         self.assertEqual(Comment.objects.filter(article=self.article).count(), COMMENT_CREATE_RATE_LIMIT)
+
+
+def _set_premoderation(enabled):
+    settings_row = CommentSettings.load()
+    settings_row.premoderation_enabled = enabled
+    settings_row.save()
+
+
+class CommentPremoderationApiTests(TestCase):
+    def setUp(self):
+        cache.clear()
+        self.article_author = _create_user('api_pm_article_author')
+        self.article = Article.objects.create(
+            title='Test', slug='api-premoderation-article', content='content', author=self.article_author,
+        )
+        self.commenter = _create_user('api_pm_commenter')
+        self.other = _create_user('api_pm_other')
+        self.staff = _create_user('api_pm_staff', is_staff=True)
+        self.list_url = f'/api/v1/articles/{self.article.slug}/comments/'
+
+    def _client(self, user=None):
+        client = APIClient()
+        if user is not None:
+            client.force_authenticate(user=user)
+        return client
+
+    def _create_as(self, user, text='Секретный комментарий'):
+        return self._client(user).post(self.list_url, {'text': text}, format='json')
+
+    def _texts(self, resp):
+        return {item['text'] for item in resp.data['results']}
+
+    def test_premoderation_off_publishes_immediately(self):
+        resp = self._create_as(self.commenter)
+
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(resp.data['is_approved'])
+        self.assertIn('Секретный комментарий', self._texts(self._client().get(self.list_url)))
+
+    def test_premoderation_on_creates_a_pending_comment(self):
+        _set_premoderation(True)
+
+        resp = self._create_as(self.commenter)
+
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        self.assertFalse(resp.data['is_approved'])
+        self.assertFalse(Comment.objects.get().is_approved)
+
+    def test_pending_comment_is_listed_only_for_its_author_and_staff(self):
+        _set_premoderation(True)
+        self._create_as(self.commenter)
+
+        self.assertNotIn('Секретный комментарий', self._texts(self._client().get(self.list_url)))
+        self.assertNotIn('Секретный комментарий', self._texts(self._client(self.other).get(self.list_url)))
+        self.assertIn('Секретный комментарий', self._texts(self._client(self.commenter).get(self.list_url)))
+        self.assertIn('Секретный комментарий', self._texts(self._client(self.staff).get(self.list_url)))
+
+    def test_someone_elses_pending_comment_looks_like_it_does_not_exist(self):
+        _set_premoderation(True)
+        self._create_as(self.commenter)
+        detail_url = f'{self.list_url}{Comment.objects.get().pk}/'
+
+        self.assertEqual(self._client().get(detail_url).status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(self._client(self.other).get(detail_url).status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(self._client(self.commenter).get(detail_url).status_code, status.HTTP_200_OK)
+        self.assertEqual(self._client(self.staff).get(detail_url).status_code, status.HTTP_200_OK)
+
+    def test_staff_comment_is_published_immediately(self):
+        _set_premoderation(True)
+
+        resp = self._create_as(self.staff)
+
+        self.assertTrue(resp.data['is_approved'])
+
+    def test_editing_text_of_an_approved_comment_sends_it_back_to_moderation(self):
+        # Иначе премодерацию обходит схема "написал безобидное, дождался одобрения, отредактировал".
+        comment = Comment.objects.create(article=self.article, author=self.commenter, text='безобидный')
+        _set_premoderation(True)
+
+        resp = self._client(self.commenter).patch(f'{self.list_url}{comment.pk}/', {'text': 'другое'}, format='json')
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        comment.refresh_from_db()
+        self.assertFalse(comment.is_approved)
+        self.assertFalse(resp.data['is_approved'])
+
+    def test_resending_the_same_text_keeps_the_comment_approved(self):
+        comment = Comment.objects.create(article=self.article, author=self.commenter, text='безобидный')
+        _set_premoderation(True)
+
+        self._client(self.commenter).patch(f'{self.list_url}{comment.pk}/', {'text': 'безобидный'}, format='json')
+
+        comment.refresh_from_db()
+        self.assertTrue(comment.is_approved)
+
+    def test_staff_edit_does_not_change_approval(self):
+        comment = Comment.objects.create(article=self.article, author=self.commenter, text='безобидный')
+        _set_premoderation(True)
+
+        self._client(self.staff).patch(f'{self.list_url}{comment.pk}/', {'text': 'исправлено'}, format='json')
+
+        comment.refresh_from_db()
+        self.assertEqual(comment.text, 'исправлено')
+        self.assertTrue(comment.is_approved)
+
+    def test_edit_without_premoderation_keeps_the_comment_approved(self):
+        comment = Comment.objects.create(article=self.article, author=self.commenter, text='безобидный')
+
+        self._client(self.commenter).patch(f'{self.list_url}{comment.pk}/', {'text': 'другое'}, format='json')
+
+        comment.refresh_from_db()
+        self.assertTrue(comment.is_approved)
+
+    def test_client_cannot_approve_its_own_comment(self):
+        _set_premoderation(True)
+
+        resp = self._client(self.commenter).post(
+            self.list_url, {'text': 'хочу сразу', 'is_approved': True}, format='json',
+        )
+
+        self.assertFalse(resp.data['is_approved'])
+        self.assertFalse(Comment.objects.get().is_approved)

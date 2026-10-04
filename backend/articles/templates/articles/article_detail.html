@@ -64,7 +64,7 @@
         {% if comments %}
             <ol class="comments">
                 {% for comment in comments %}
-                    <li class="comment">
+                    <li class="comment{% if not comment.is_approved %} comment--pending{% endif %}">
                         <span class="avatar" aria-hidden="true">
                             {% if comment.author.avatar %}
                                 <img src="{{ comment.author.avatar.url }}" alt="">
@@ -76,6 +76,7 @@
                             <p class="comment__head">
                                 <span class="comment__author">{{ comment.author }}</span>
                                 <time class="comment__date" datetime="{{ comment.created_at|date:'c' }}">{{ comment.created_at|date:"j E Y, H:i" }}</time>
+                                {% if not comment.is_approved %}<span class="comment__status">Ожидает модерации</span>{% endif %}
                             </p>
                             <div class="comment__text">{{ comment.text|linebreaks }}</div>
                         </div>

@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import requests
@@ -5,7 +6,7 @@ from django.core.cache import cache
 from django.core.validators import validate_email
 from django.test import Client, RequestFactory, SimpleTestCase, TestCase, override_settings
 
-from common.demo_fakers import contact_value_faker
+from common.demo_fakers import changed_values, contact_value_faker, fake_applicant_data, fake_user_data
 from common.notifications import send_email_notification, send_telegram_notification
 from common.rate_limit import is_rate_limited
 from common.request import get_client_ip
@@ -274,3 +275,45 @@ class DemoModeNoticeTests(TestCase):
                 self.assertNotContains(response, self.BANNER)
                 self.assertNotContains(response, self.NOTE)
         self.assertNotContains(Client().get('/accounts/register/'), self.NOTE)
+
+
+class DemoFakerCoreTests(SimpleTestCase):
+    """
+    Ядро подмены работает со словарями (validated_data сериализаторов, cleaned_data форм),
+    а не с формами: так одна и та же логика обслуживает и сайт, и API.
+    """
+
+    def test_changed_values_on_create_counts_every_value_as_entered(self):
+        self.assertEqual(changed_values({'a': 1, 'b': 2}), {'a': 1, 'b': 2})
+
+    def test_changed_values_on_update_keeps_only_values_that_differ_from_the_instance(self):
+        instance = SimpleNamespace(a=1, b=2)
+
+        self.assertEqual(changed_values({'a': 1, 'b': 3}, instance), {'b': 3})
+
+    def test_changed_values_treats_a_field_unknown_to_the_instance_as_changed(self):
+        self.assertEqual(changed_values({'new': 1}, SimpleNamespace()), {'new': 1})
+
+    def test_applicant_data_replaces_only_the_fields_that_were_entered(self):
+        fakes = fake_applicant_data({'name': 'Иван'}, 'phone')
+
+        self.assertEqual(set(fakes), {'name'})
+        self.assertTrue(fakes['name'].endswith('faked'))
+
+    def test_applicant_contact_follows_the_contact_method(self):
+        def contact(method):
+            return fake_applicant_data({'contact_value': 'x'}, method)['contact_value']
+
+        self.assertRegex(contact('email'), r'@example\.(com|org|net)$')
+        self.assertTrue(contact('telegram').startswith('@'))
+        self.assertTrue(contact('phone').startswith('+7000'))
+
+    def test_nothing_entered_means_nothing_replaced(self):
+        self.assertEqual(fake_applicant_data({}, 'phone'), {})
+        self.assertEqual(fake_user_data({}), {})
+
+    def test_user_data_replaces_only_the_names_that_were_entered(self):
+        fakes = fake_user_data({'first_name': 'Иван', 'email': 'real@mail.ru'})
+
+        self.assertEqual(set(fakes), {'first_name'})
+        self.assertTrue(fakes['first_name'].endswith('faked'))
