@@ -25,7 +25,7 @@ from api.serializers import (
     RatingSerializer,
     ServicePriceSerializer,
 )
-from articles.models import Article, Comment, Rating
+from articles.models import Article, Comment, CommentSettings, Rating
 from common.constants import (
     COMMENT_CREATE_THROTTLE_SCOPE,
     CONSULTATION_CREATE_UPDATE_RATE_LIMIT,
@@ -133,6 +133,25 @@ class CommentViewSet(ArticleRelationViewSet):
         if self.action == 'create':
             return (ScopedRateThrottle(),)
         return ()
+
+    def get_queryset(self):
+        return super().get_queryset().visible_to(self.request.user)
+
+    def perform_create(self, serializer):
+        serializer.save(
+            article=self.article,
+            author=self.request.user,
+            is_approved=not CommentSettings.requires_moderation(self.request.user),
+        )
+
+    def perform_update(self, serializer):
+        # Правка уже одобренного комментария - способ обойти премодерацию ("написал безобидное,
+        # дождался одобрения, отредактировал"), поэтому новый текст снова уходит на проверку.
+        new_text = serializer.validated_data.get('text', serializer.instance.text)
+        if new_text != serializer.instance.text and CommentSettings.requires_moderation(self.request.user):
+            serializer.save(is_approved=False)
+        else:
+            serializer.save()
 
 
 class RatingViewSet(ArticleRelationViewSet):

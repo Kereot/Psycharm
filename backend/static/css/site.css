@@ -1322,6 +1322,19 @@ input[name="website"] {
     font-size: 0.875rem;
 }
 
+/* Свой неодобренный комментарий: виден только автору (и сотрудникам), остальным скрыт. */
+.comment__status {
+    padding: 0.05rem 0.6rem;
+    border: 1px solid var(--peach-deep);
+    border-radius: 999px;
+    background: var(--peach-wash);
+    font-size: 0.8125rem;
+}
+
+.comment--pending .comment__text {
+    color: var(--slate-soft);
+}
+
 .comment__text {
     margin-top: 0.35rem;
     overflow-wrap: anywhere;

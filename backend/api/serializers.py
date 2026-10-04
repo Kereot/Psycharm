@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from djoser.serializers import UserCreateSerializer as BaseUserCreateSerializer
 from djoser.serializers import UserSerializer as BaseUserSerializer
@@ -5,6 +6,7 @@ from rest_framework import serializers
 
 from articles.models import Article, Comment, Rating
 from common.constants import HONEYPOT_ERROR_MESSAGE, HONEYPOT_FIELD_NAME, PRIVACY_CONSENT_ERROR_MESSAGE
+from common.demo_fakers import changed_values, fake_applicant_data, fake_user_data
 from common.fields import NoBlankBase64ImageField
 from consultations.models import Consultation
 from pages.models import ServicePrice
@@ -25,6 +27,13 @@ class UserSerializer(BaseUserSerializer):
         fields = ('id', 'username', 'email', 'first_name', 'last_name', 'avatar')
         read_only_fields = ('username', 'avatar')
 
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        # Хук в сериализаторе: Djoser сам вызывает perform_update без kwargs.
+        if settings.DEMO_MODE:
+            attrs.update(fake_user_data(changed_values(attrs, self.instance)))
+        return attrs
+
 
 class UserCreateSerializer(BaseUserCreateSerializer):
     privacy_consent = serializers.BooleanField(required=True, write_only=True)
@@ -36,7 +45,10 @@ class UserCreateSerializer(BaseUserCreateSerializer):
     def validate(self, attrs):
         if not attrs.pop('privacy_consent', False):
             raise serializers.ValidationError({'privacy_consent': PRIVACY_CONSENT_ERROR_MESSAGE})
-        return super().validate(attrs)
+        attrs = super().validate(attrs)
+        if settings.DEMO_MODE:
+            attrs.update(fake_user_data(changed_values(attrs)))
+        return attrs
 
 
 class AvatarSerializer(serializers.ModelSerializer):
@@ -64,8 +76,8 @@ class CommentSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Comment
-        fields = ('id', 'author', 'text', 'created_at')
-        read_only_fields = ('id', 'author', 'created_at')
+        fields = ('id', 'author', 'text', 'is_approved', 'created_at')
+        read_only_fields = ('id', 'author', 'is_approved', 'created_at')
 
 
 class RatingSerializer(serializers.ModelSerializer):
@@ -102,6 +114,8 @@ class ConsultationCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({'privacy_consent': PRIVACY_CONSENT_ERROR_MESSAGE})
 
         _validate_contact(attrs['contact_method'], attrs['contact_value'])
+        if settings.DEMO_MODE:
+            attrs.update(fake_applicant_data(changed_values(attrs), attrs['contact_method']))
         return attrs
 
 
@@ -115,6 +129,8 @@ class ConsultationOwnerUpdateSerializer(serializers.ModelSerializer):
         contact_method = attrs.get('contact_method', self.instance.contact_method)
         contact_value = attrs.get('contact_value', self.instance.contact_value)
         _validate_contact(contact_method, contact_value)
+        if settings.DEMO_MODE:
+            attrs.update(fake_applicant_data(changed_values(attrs, self.instance), contact_method))
         return attrs
 
 

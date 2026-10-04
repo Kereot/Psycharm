@@ -1,11 +1,13 @@
 from unittest.mock import patch
 
+from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
 from django.test import Client, TestCase
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from articles.models import Article, Comment, Rating
+from articles.models import Article, Comment, CommentSettings, Rating
+from articles.notifications import notify_admin_of_new_comment
 from articles.signals import _notify_in_background
 from common.constants import (
     ARTICLE_LIST_PAGE_SIZE,
@@ -257,3 +259,236 @@ class CommentCreateFormThrottleTests(TestCase):
         self.client.post(url, {'submit_comment': '1', 'text': 'one too many'})
 
         self.assertEqual(Comment.objects.filter(article=self.article).count(), COMMENT_CREATE_RATE_LIMIT)
+
+
+def _set_premoderation(enabled):
+    settings_row = CommentSettings.load()
+    settings_row.premoderation_enabled = enabled
+    settings_row.save()
+
+
+class CommentSettingsTests(TestCase):
+    """Единственная строка настроек, которую администратор переключает в админке."""
+
+    def test_load_creates_the_row_with_premoderation_off(self):
+        loaded = CommentSettings.load()
+
+        self.assertEqual(loaded.pk, 1)
+        self.assertFalse(loaded.premoderation_enabled)
+
+    def test_there_is_only_ever_one_row(self):
+        CommentSettings.load()
+        CommentSettings(premoderation_enabled=True).save()
+
+        self.assertEqual(CommentSettings.objects.count(), 1)
+        self.assertTrue(CommentSettings.load().premoderation_enabled)
+
+    def test_requirement_depends_on_the_switch_and_on_the_author_being_staff(self):
+        regular = _create_user('mod_regular')
+        staff = _create_user('mod_staff', is_staff=True)
+
+        self.assertFalse(CommentSettings.requires_moderation(regular))
+
+        _set_premoderation(True)
+
+        self.assertTrue(CommentSettings.requires_moderation(regular))
+        self.assertFalse(CommentSettings.requires_moderation(staff))
+
+
+class CommentVisibilityTests(TestCase):
+    def setUp(self):
+        self.author = _create_user('vis_author')
+        self.article = _create_article(self.author, slug='visibility-article')
+        self.commenter = _create_user('vis_commenter')
+        self.other = _create_user('vis_other')
+        self.staff = _create_user('vis_staff', is_staff=True)
+        self.approved = Comment.objects.create(article=self.article, author=self.other, text='одобренный')
+        self.pending = Comment.objects.create(
+            article=self.article, author=self.commenter, text='ожидающий', is_approved=False,
+        )
+
+    def _visible_to(self, user):
+        return set(self.article.comments.visible_to(user))
+
+    def test_comment_is_approved_by_default(self):
+        # Старые комментарии (до появления поля) и созданные в админке не должны пропасть с сайта.
+        self.assertTrue(Comment.objects.create(article=self.article, author=self.other, text='x').is_approved)
+
+    def test_anonymous_sees_only_approved(self):
+        self.assertEqual(self._visible_to(AnonymousUser()), {self.approved})
+
+    def test_author_sees_own_pending_but_not_other_peoples(self):
+        self.assertEqual(self._visible_to(self.commenter), {self.approved, self.pending})
+        self.assertEqual(self._visible_to(self.other), {self.approved})
+
+    def test_staff_sees_everything(self):
+        self.assertEqual(self._visible_to(self.staff), {self.approved, self.pending})
+
+
+class CommentPremoderationFormTests(TestCase):
+    """Сайтовая форма комментария: при включённой премодерации комментарий ждёт одобрения."""
+
+    def setUp(self):
+        cache.clear()
+        self.article_author = _create_user('pm_article_author')
+        self.article = _create_article(self.article_author, slug='premoderation-article')
+        self.url = f'/articles/{self.article.slug}/'
+        self.commenter = _create_user('pm_commenter')
+        self.other = _create_user('pm_other')
+        self.staff = _create_user('pm_staff', is_staff=True)
+
+    def _post_comment(self, user, text='Секретный комментарий'):
+        client = Client()
+        client.force_login(user)
+        return client.post(self.url, {'submit_comment': '1', 'text': text}, follow=True)
+
+    def _page_as(self, user=None):
+        client = Client()
+        if user is not None:
+            client.force_login(user)
+        return client.get(self.url)
+
+    def test_premoderation_off_publishes_immediately(self):
+        resp = self._post_comment(self.commenter)
+
+        self.assertTrue(Comment.objects.get().is_approved)
+        self.assertContains(self._page_as(), 'Секретный комментарий')
+        self.assertContains(resp, 'Комментарий добавлен.')
+
+    def test_premoderation_on_holds_the_comment_back(self):
+        _set_premoderation(True)
+
+        resp = self._post_comment(self.commenter)
+
+        self.assertFalse(Comment.objects.get().is_approved)
+        self.assertContains(resp, 'на модерацию')
+
+    def test_pending_comment_is_hidden_from_anonymous_and_other_users(self):
+        _set_premoderation(True)
+        self._post_comment(self.commenter)
+
+        self.assertNotContains(self._page_as(), 'Секретный комментарий')
+        self.assertNotContains(self._page_as(self.other), 'Секретный комментарий')
+
+    def test_pending_comment_is_visible_to_its_author_with_a_label(self):
+        _set_premoderation(True)
+        self._post_comment(self.commenter)
+
+        page = self._page_as(self.commenter)
+
+        self.assertContains(page, 'Секретный комментарий')
+        self.assertContains(page, 'Ожидает модерации')
+
+    def test_comment_counter_does_not_count_hidden_comments(self):
+        _set_premoderation(True)
+        self._post_comment(self.commenter)
+
+        self.assertContains(self._page_as(), 'Комментарии (0)')
+
+    def test_staff_comment_is_published_immediately(self):
+        _set_premoderation(True)
+
+        self._post_comment(self.staff)
+
+        self.assertTrue(Comment.objects.get().is_approved)
+
+    def test_settings_are_read_only_for_a_valid_submission(self):
+        # requires_moderation() ходит в БД (CommentSettings.load): на пустом тексте, который всё
+        # равно отклонит форма, этот запрос лишний.
+        with patch.object(CommentSettings, 'requires_moderation', return_value=False) as requires_moderation:
+            self._post_comment(self.commenter, text='')
+            requires_moderation.assert_not_called()
+
+            self._post_comment(self.commenter, text='нормальный текст')
+            requires_moderation.assert_called_once()
+
+    def test_turning_premoderation_off_does_not_approve_what_is_already_pending(self):
+        _set_premoderation(True)
+        self._post_comment(self.commenter)
+
+        _set_premoderation(False)
+
+        self.assertFalse(Comment.objects.get().is_approved)
+        self.assertNotContains(self._page_as(), 'Секретный комментарий')
+
+
+class CommentNotificationTests(TestCase):
+    def setUp(self):
+        self.author = _create_user('notif_author')
+        self.article = _create_article(self.author, slug='notification-article')
+
+    def _notify(self, **comment_fields):
+        comment = Comment.objects.create(article=self.article, author=self.author, text='привет', **comment_fields)
+        with patch('articles.notifications.send_email_notification') as email, \
+                patch('articles.notifications.send_telegram_notification') as telegram:
+            notify_admin_of_new_comment(comment)
+        return email.call_args[0], telegram.call_args[0][0]
+
+    def test_pending_comment_is_marked_in_both_channels(self):
+        (subject, body), telegram_message = self._notify(is_approved=False)
+
+        self.assertIn('на модерации', subject)
+        self.assertIn('ожидает модерации', body)
+        self.assertIn('ожидает модерации', telegram_message)
+
+    def test_approved_comment_is_not_marked(self):
+        (subject, body), telegram_message = self._notify()
+
+        self.assertNotIn('модерации', subject)
+        self.assertNotIn('модерации', body)
+        self.assertNotIn('модерации', telegram_message)
+
+
+class CommentModerationAdminTests(TestCase):
+    def setUp(self):
+        self.admin = _create_user('mod_admin', is_staff=True, is_superuser=True)
+        self.client = Client()
+        self.client.force_login(self.admin)
+        author = _create_user('mod_admin_author')
+        article = _create_article(author, slug='admin-moderation-article')
+        self.pending = Comment.objects.create(article=article, author=author, text='ожидающий', is_approved=False)
+        self.approved = Comment.objects.create(article=article, author=author, text='одобренный')
+
+    def test_filter_shows_only_comments_awaiting_moderation(self):
+        resp = self.client.get('/admin/articles/comment/?is_approved__exact=0')
+
+        self.assertContains(resp, 'ожидающий')
+        self.assertNotContains(resp, 'одобренный')
+
+    def test_approve_action_publishes_selected_comments(self):
+        self.client.post('/admin/articles/comment/', {
+            'action': 'approve_comments', '_selected_action': [self.pending.pk],
+        })
+
+        self.pending.refresh_from_db()
+        self.assertTrue(self.pending.is_approved)
+
+    def test_hide_action_returns_selected_comments_to_moderation(self):
+        self.client.post('/admin/articles/comment/', {
+            'action': 'hide_comments', '_selected_action': [self.approved.pk],
+        })
+
+        self.approved.refresh_from_db()
+        self.assertFalse(self.approved.is_approved)
+
+    def test_settings_list_leads_straight_to_the_only_settings_form(self):
+        resp = self.client.get('/admin/articles/commentsettings/', follow=True)
+
+        self.assertEqual(resp.redirect_chain[0][0], '/admin/articles/commentsettings/1/change/')
+        self.assertContains(resp, 'name="premoderation_enabled"')
+
+    def test_administrator_can_switch_premoderation_on_and_off(self):
+        url = '/admin/articles/commentsettings/1/change/'
+        CommentSettings.load()
+
+        self.client.post(url, {'premoderation_enabled': 'on', '_save': 'Сохранить'})
+        self.assertTrue(CommentSettings.load().premoderation_enabled)
+
+        self.client.post(url, {'_save': 'Сохранить'})
+        self.assertFalse(CommentSettings.load().premoderation_enabled)
+
+    def test_settings_row_cannot_be_added_or_deleted_from_admin(self):
+        CommentSettings.load()
+
+        self.assertEqual(self.client.get('/admin/articles/commentsettings/add/').status_code, 403)
+        self.assertEqual(self.client.get('/admin/articles/commentsettings/1/delete/').status_code, 403)
