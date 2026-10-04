@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from django.contrib.messages import get_messages
 from django.core.cache import cache
-from django.test import Client, TestCase
+from django.test import Client, TestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -949,3 +949,95 @@ class SessionBasedConsultationClaimingTests(ThrottleCacheClearingTestCase):
 
         linked_count = Consultation.objects.filter(pk__in=consultation_ids, user__isnull=False).count()
         self.assertEqual(linked_count, CONSULTATION_CREATE_UPDATE_RATE_LIMIT)
+
+
+@override_settings(DEMO_MODE=True)
+class DemoModeConsultationTests(ThrottleCacheClearingTestCase):
+    """
+    В демо-режиме введённые имя и контакт не сохраняются - вместо них случайные
+    значения. Проверка формата и лимиты идут по реальному вводу, подмена - прямо перед
+    сохранением; текст сообщения не подменяется (о чём предупреждает уведомление на форме).
+    """
+
+    REAL_NAME = 'Иван Реальный'
+
+    def test_form_submission_replaces_name_and_contact_but_keeps_message(self):
+        resp = Client().post(CONSULTATION_FORM_URL, _form_payload(name=self.REAL_NAME))
+
+        self.assertRedirects(resp, CONSULTATION_SUCCESS_URL)
+        saved = Consultation.objects.get()
+        self.assertNotEqual(saved.name, self.REAL_NAME)
+        self.assertTrue(saved.name.endswith('faked'))
+        self.assertNotEqual(saved.contact_value, DEFAULT_CONTACT_VALUE)
+        self.assertEqual(saved.message, 'Хочу записаться на консультацию.')
+
+    def test_replacement_contact_matches_the_chosen_method_and_is_valid(self):
+        real_contacts = (
+            ('phone', '+79991234567'),
+            ('whatsapp', '+79991234567'),
+            ('telegram', '@realuser'),
+            ('email', 'real@mail.ru'),
+        )
+        for method, real_value in real_contacts:
+            with self.subTest(method=method):
+                Consultation.objects.all().delete()
+                Client().post(
+                    CONSULTATION_FORM_URL, _form_payload(contact_method=method, contact_value=real_value),
+                )
+
+                saved = Consultation.objects.get()
+                self.assertEqual(saved.contact_method, method)
+                self.assertNotEqual(saved.contact_value, real_value)
+                saved.full_clean()
+
+    def test_real_input_is_not_stored_anywhere(self):
+        Client().post(CONSULTATION_FORM_URL, _form_payload(name=self.REAL_NAME))
+
+        self.assertFalse(Consultation.objects.filter(name=self.REAL_NAME).exists())
+        self.assertFalse(Consultation.objects.filter(contact_value=DEFAULT_CONTACT_VALUE).exists())
+
+    def test_invalid_input_is_still_rejected_before_any_replacement(self):
+        resp = Client().post(CONSULTATION_FORM_URL, _form_payload(contact_value=INVALID_PHONE_VALUE))
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(Consultation.objects.count(), 0)
+
+
+@override_settings(DEMO_MODE=True)
+class DemoModeConsultationEditTests(TestCase):
+    FAKED_CONTACT = '+70001234567'
+
+    def setUp(self):
+        cache.clear()
+        self.owner = _create_user('demo_edit_owner')
+        self.consultation = Consultation.objects.create(
+            user=self.owner, name='Мария_faked', contact_method='phone', contact_value=self.FAKED_CONTACT,
+            message='Старое сообщение',
+        )
+        self.client.force_login(self.owner)
+        self.edit_url = f'/consultation/my/{self.consultation.pk}/edit/'
+
+    def _post(self, **overrides):
+        payload = {'contact_method': 'phone', 'contact_value': self.FAKED_CONTACT, 'message': 'Новое сообщение'}
+        payload.update(overrides)
+        self.client.post(self.edit_url, payload)
+        self.consultation.refresh_from_db()
+
+    def test_unchanged_contact_is_kept_when_only_message_changes(self):
+        # Иначе при каждой правке текста контакт менялся бы на новое случайное значение.
+        self._post()
+
+        self.assertEqual(self.consultation.message, 'Новое сообщение')
+        self.assertEqual(self.consultation.contact_value, self.FAKED_CONTACT)
+
+    def test_changed_contact_is_replaced_and_stays_valid(self):
+        self._post(contact_value='+79990000000')
+
+        self.assertNotEqual(self.consultation.contact_value, '+79990000000')
+        self.assertNotEqual(self.consultation.contact_value, self.FAKED_CONTACT)
+        self.consultation.full_clean()
+
+    def test_name_is_not_touched_by_edit(self):
+        self._post(contact_value='+79990000000')
+
+        self.assertEqual(self.consultation.name, 'Мария_faked')

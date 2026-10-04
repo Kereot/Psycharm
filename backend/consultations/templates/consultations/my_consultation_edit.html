@@ -14,6 +14,8 @@
         <div class="alert alert-danger">{{ form.non_field_errors }}</div>
     {% endif %}
 
+    {% include "includes/demo_notice.html" with text="Изменённый контакт заменяется случайным значением. Текст сообщения сохраняется как введён: не указывайте в нём личные данные." %}
+
     {% for field in form %}
         {% include "includes/form_field.html" %}
     {% endfor %}

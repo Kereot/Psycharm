@@ -281,6 +281,25 @@ a {
     color: var(--slate-soft);
 }
 
+/* ========== Демо-режим ========== */
+
+/* Тонкая полоса над шапкой: видна на каждой странице, но не спорит с контентом. */
+.demo-banner {
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--peach-deep);
+    background: var(--peach-wash);
+    font-size: 0.9rem;
+    line-height: 1.4;
+    /* Две строки делятся поровну, без одинокого слова на второй. */
+    text-wrap: balance;
+}
+
+/* Пояснение внутри формы: что заменяется, а что сохраняется как введено. */
+.demo-note {
+    margin-bottom: 1.25rem;
+    font-size: 0.95rem;
+}
+
 /* ========== Шапка ========== */
 
 .site-header {

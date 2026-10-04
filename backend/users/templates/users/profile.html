@@ -26,6 +26,8 @@
             <div class="alert alert-danger">{{ form.non_field_errors }}</div>
         {% endif %}
 
+        {% include "includes/demo_notice.html" with text="Имя и фамилия заменяются случайными значениями. Email и аватар сохраняются как есть." %}
+
         {% for field in form %}
             {% include "includes/form_field.html" %}
         {% endfor %}

@@ -2,11 +2,16 @@ from unittest.mock import Mock, patch
 
 import requests
 from django.core.cache import cache
-from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
+from django.core.validators import validate_email
+from django.test import Client, RequestFactory, SimpleTestCase, TestCase, override_settings
 
+from common.demo_fakers import contact_value_faker
 from common.notifications import send_email_notification, send_telegram_notification
 from common.rate_limit import is_rate_limited
 from common.request import get_client_ip
+from common.validators import validate_phone, validate_telegram_handle
+from consultations.models import Consultation
+from users.models import User
 
 
 @override_settings(ADMIN_NOTIFICATION_EMAIL='admin@example.com', DEFAULT_FROM_EMAIL='noreply@example.com')
@@ -190,3 +195,82 @@ class GetClientIpTests(SimpleTestCase):
         request = self._request(HTTP_X_FORWARDED_FOR='203.0.113.7, 172.18.0.2')
 
         self.assertEqual(get_client_ip(request), '172.18.0.5')
+
+
+class ContactValueFakerTests(SimpleTestCase):
+    """
+    Подмена контакта в демо-режиме. Значение обязано проходить те же проверки формата,
+    что и реальный ввод: иначе при правке заявки форма не пропустит уже сохранённый
+    (подменённый) контакт, и текст сообщения нельзя будет изменить, не меняя контакт.
+    """
+
+    VALIDATORS = {
+        'phone': validate_phone,
+        'whatsapp': validate_phone,
+        'telegram': validate_telegram_handle,
+        'email': validate_email,
+    }
+
+    def test_replacement_passes_the_same_validators_as_real_input(self):
+        for method, validator in self.VALIDATORS.items():
+            with self.subTest(method=method):
+                for _ in range(300):
+                    validator(contact_value_faker(method))
+
+    def test_email_never_points_to_a_real_mailbox(self):
+        # Reserved-домены example.* (RFC 2606): адрес не может принадлежать живому человеку.
+        for _ in range(100):
+            self.assertRegex(contact_value_faker('email'), r'@example\.(com|org|net)$')
+
+    def test_phone_uses_unassigned_code_so_it_cannot_belong_to_a_subscriber(self):
+        for _ in range(100):
+            self.assertTrue(contact_value_faker('phone').startswith('+7000'))
+
+
+class DemoModeNoticeTests(TestCase):
+    """
+    Пользователь должен узнать о подмене данных до того, как начнёт вводить их в формы:
+    полоса на каждой странице и пояснение в каждой из четырёх форм с персональными данными.
+    """
+
+    BANNER = 'Демонстрационная версия'
+    NOTE = 'Демо-режим.'
+
+    def setUp(self):
+        user = User.objects.create_user(
+            username='notice_user', email='notice@example.com', password='pass12345',
+            first_name='А', last_name='Б',
+        )
+        consultation = Consultation.objects.create(
+            user=user, name='А', contact_method='phone', contact_value='+70000000000', message='м',
+        )
+        self.client.force_login(user)
+        self.form_urls = {
+            'заявка': '/consultation/',
+            'правка заявки': f'/consultation/my/{consultation.pk}/edit/',
+            'профиль': '/accounts/profile/',
+        }
+
+    @override_settings(DEMO_MODE=True)
+    def test_banner_is_shown_on_every_page(self):
+        for url in ('/', '/articles/', '/consultation/', '/accounts/profile/'):
+            with self.subTest(url=url):
+                self.assertContains(self.client.get(url), self.BANNER)
+
+    @override_settings(DEMO_MODE=True)
+    def test_note_is_shown_in_every_form_that_takes_personal_data(self):
+        for name, url in self.form_urls.items():
+            with self.subTest(form=name):
+                self.assertContains(self.client.get(url), self.NOTE)
+
+        # Регистрация доступна только анонимному пользователю.
+        self.assertContains(Client().get('/accounts/register/'), self.NOTE)
+
+    @override_settings(DEMO_MODE=False)
+    def test_nothing_is_shown_when_demo_mode_is_off(self):
+        for url in ('/', *self.form_urls.values()):
+            with self.subTest(url=url):
+                response = self.client.get(url)
+                self.assertNotContains(response, self.BANNER)
+                self.assertNotContains(response, self.NOTE)
+        self.assertNotContains(Client().get('/accounts/register/'), self.NOTE)

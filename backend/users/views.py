@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
@@ -6,6 +7,7 @@ from django.shortcuts import redirect, render
 from rest_framework.status import HTTP_429_TOO_MANY_REQUESTS
 
 from common.constants import LOGIN_RATE_LIMIT, LOGIN_RATE_LIMIT_WINDOW_SECONDS
+from common.demo_fakers import user_names_faker
 from common.rate_limit import is_rate_limited
 from common.request import get_client_ip
 from consultations.services import claim_session_consultations
@@ -19,6 +21,8 @@ def register(request):
     if request.method == 'POST':
         form = RegistrationForm(request.POST)
         if form.is_valid():
+            if settings.DEMO_MODE:
+                user_names_faker(form)
             user = form.save()
             user.backend = 'django.contrib.auth.backends.ModelBackend'
             login(request, user)
@@ -56,6 +60,8 @@ def profile(request):
         form = ProfileForm(request.POST, request.FILES, instance=request.user)
         if form.is_valid():
             if form.has_changed():
+                if settings.DEMO_MODE:
+                    user_names_faker(form)
                 form.save()
                 messages.success(request, 'Профиль обновлён.')
             else:
