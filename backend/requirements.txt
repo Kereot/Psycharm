@@ -10,3 +10,4 @@ requests==2.34.2
 drf-spectacular==0.30.0
 psycopg2-binary==2.9.12
 gunicorn==26.0.0
+Faker==40.40.0

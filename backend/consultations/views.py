@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.http import Http404
@@ -10,6 +11,7 @@ from common.constants import (
     CONSULTATION_STATUS_CLOSED,
     STAFF_PANEL_PAGE_SIZE,
 )
+from common.demo_fakers import applicant_names_faker
 from common.rate_limit import is_rate_limited
 from common.request import get_client_ip
 from consultations.forms import ConsultationEditForm, ConsultationForm
@@ -37,6 +39,8 @@ def consultation_request(request):
         messages.error(request, 'Слишком много заявок. Попробуйте позже.')
         return render(request, 'consultations/request_form.html', {'form': form}, status=429)
 
+    if settings.DEMO_MODE:
+        applicant_names_faker(form)
     consultation = form.save(commit=False)
     consultation.user = user
     consultation.save()
@@ -101,6 +105,8 @@ def my_consultation_edit(request, pk):
         messages.error(request, 'Слишком много изменений. Попробуйте позже.')
         return redirect('consultations:my')
 
+    if settings.DEMO_MODE:
+        applicant_names_faker(form)
     consultation = form.save()
     dispatch_consultation_update_notification(consultation, old_contact_method, old_contact_value, old_message)
     messages.success(request, 'Заявка обновлена.')

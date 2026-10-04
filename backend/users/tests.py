@@ -342,3 +342,42 @@ class PasswordResetTests(TestCase):
 
         self.assertContains(resp, 'недействительна')
         self.assertTrue(self.user.check_password(VALID_PASSWORD))
+
+
+@override_settings(DEMO_MODE=True)
+class DemoModeUserTests(TestCase):
+    """
+    В демо-режиме введённые имя и фамилия не сохраняются - вместо них случайные значения.
+    Логин и email остаются как введены: они нужны для входа и восстановления пароля.
+    """
+
+    def test_registration_replaces_names_but_keeps_username_and_email(self):
+        Client().post(REGISTER_URL, _registration_payload(first_name='Иван', last_name='Иванов'))
+
+        user = User.objects.get(username='newuser')
+        self.assertNotEqual(user.first_name, 'Иван')
+        self.assertNotEqual(user.last_name, 'Иванов')
+        self.assertTrue(user.first_name.endswith('faked'))
+        self.assertTrue(user.last_name.endswith('faked'))
+        self.assertEqual(user.email, 'newuser@example.com')
+
+    def test_profile_replaces_only_changed_names(self):
+        user = User.objects.create_user(
+            username='demoprofile', email='demoprofile@example.com', password=VALID_PASSWORD,
+            first_name='Анна_faked', last_name='Смит_faked',
+        )
+        client = Client()
+        client.force_login(user)
+
+        # Меняется только email: имена уже подменены, заново их менять не нужно.
+        client.post(PROFILE_URL, {'first_name': 'Анна_faked', 'last_name': 'Смит_faked', 'email': 'new@example.com'})
+        user.refresh_from_db()
+        self.assertEqual((user.first_name, user.last_name), ('Анна_faked', 'Смит_faked'))
+        self.assertEqual(user.email, 'new@example.com')
+
+        # Реально введённое имя подменяется, нетронутая фамилия остаётся.
+        client.post(PROFILE_URL, {'first_name': 'Реальное', 'last_name': 'Смит_faked', 'email': 'new@example.com'})
+        user.refresh_from_db()
+        self.assertNotEqual(user.first_name, 'Реальное')
+        self.assertTrue(user.first_name.endswith('faked'))
+        self.assertEqual(user.last_name, 'Смит_faked')

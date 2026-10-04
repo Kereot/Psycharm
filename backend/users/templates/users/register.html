@@ -14,6 +14,8 @@
         <div class="alert alert-danger">{{ form.non_field_errors }}</div>
     {% endif %}
 
+    {% include "includes/demo_notice.html" with text="Имя и фамилия заменяются случайными значениями. Логин и email сохраняются как введены: используйте вымышленный логин." %}
+
     {% for field in form %}
         {% if field.name != 'privacy_consent' %}
             {% include "includes/form_field.html" %}

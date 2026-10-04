@@ -16,6 +16,15 @@
 <body>
 <a class="skip-link" href="#main">Перейти к содержанию</a>
 
+{% if DEMO_MODE %}
+<div class="demo-banner" role="note">
+    <div class="container">
+        <strong>Демонстрационная версия.</strong>
+        Имена и контакты в заявках и профилях заменяются случайными значениями. Личные данные вводить не нужно.
+    </div>
+</div>
+{% endif %}
+
 {% include "includes/header.html" %}
 
 <main id="main" class="site-main">

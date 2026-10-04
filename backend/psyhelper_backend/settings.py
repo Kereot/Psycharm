@@ -32,6 +32,11 @@ if not SECRET_KEY:
 
 DEBUG = os.getenv('DEBUG', 'false').lower() in ('true', '1', 'yes', 'on')
 
+# Демонстрационный режим: введённые имена и контакты подменяются случайными
+# значениями (common/demo_fakers.py), чтобы реальные персональные данные не
+# попадали в базу. По умолчанию выключен.
+DEMO_MODE = os.getenv('DEMO_MODE', 'false').lower() in ('true', '1', 'yes', 'on')
+
 ALLOWED_HOSTS = [h.strip() for h in os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',') if h.strip()]
 CSRF_TRUSTED_ORIGINS = [o.strip() for o in os.getenv('CSRF_TRUSTED_ORIGINS', '').split(',') if o.strip()]
 
@@ -139,6 +144,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'common.context_processors.demo_mode',
             ],
         },
     },
